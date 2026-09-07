@@ -1,0 +1,32 @@
+# Dependencies
+node_modules/
+
+# Production build output
+dist/
+build/
+coverage/
+uploads/
+
+# Environment Variables & Secrets (CRITICAL: NEVER COMMIT)
+.env
+.env.*
+!.env.example
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# OS & Editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Prisma Generated Client
+src/generated/

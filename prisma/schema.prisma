@@ -1,0 +1,262 @@
+// Prisma schema for FWS CRM
+// Neon PostgreSQL connection with connection pooling & direct migration support
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum Role {
+  SUPER_ADMIN
+  ADMIN
+  MANAGER
+  AGENT
+  VIEWER
+}
+
+enum ActivityType {
+  CREATED
+  UPDATED
+  STATUS_CHANGED
+  OWNER_ASSIGNED
+  NOTE_ADDED
+  IMPORTED
+  DELETED
+}
+
+enum ImportStatus {
+  QUEUED
+  PROCESSING
+  COMPLETED
+  COMPLETED_WITH_ERRORS
+  FAILED
+  CANCELLED
+}
+
+model Organization {
+  id        String   @id @default(uuid())
+  name      String
+  slug      String   @unique
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relationships
+  users         User[]
+  leads         Lead[]
+  leadStatuses  LeadStatus[]
+  leadSources   LeadSource[]
+  subAffiliates SubAffiliate[]
+  activities    LeadActivity[]
+  notes         LeadNote[]
+  imports       Import[]
+
+  @@map("organizations")
+}
+
+model User {
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  email          String
+  passwordHash   String   @map("password_hash")
+  firstName      String   @map("first_name")
+  lastName       String   @map("last_name")
+  role           Role     @default(AGENT)
+  isActive       Boolean  @default(true) @map("is_active")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  // Relationships
+  organization Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  ownedLeads   Lead[]         @relation("LeadOwner")
+  activities   LeadActivity[]
+  notes        LeadNote[]
+  imports      Import[]
+
+  @@unique([organizationId, email])
+  @@index([organizationId])
+  @@map("users")
+}
+
+model Country {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  isoCode   String?  @unique @map("iso_code")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  leads Lead[]
+
+  @@map("countries")
+}
+
+model LeadStatus {
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  name           String
+  color          String   @default("#0D9488")
+  order          Int      @default(0)
+  isDefault      Boolean  @default(false) @map("is_default")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  leads        Lead[]
+
+  @@unique([organizationId, name])
+  @@index([organizationId])
+  @@map("lead_statuses")
+}
+
+model LeadSource {
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  name           String
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  leads        Lead[]
+
+  @@unique([organizationId, name])
+  @@index([organizationId])
+  @@map("lead_sources")
+}
+
+model SubAffiliate {
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  name           String
+  code           String
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  leads        Lead[]
+
+  @@unique([organizationId, code])
+  @@index([organizationId])
+  @@map("sub_affiliates")
+}
+
+model Lead {
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  firstName      String   @map("first_name")
+  lastName       String   @map("last_name")
+  email          String
+  phone          String?
+  countryId      String?  @map("country_id")
+  countryName    String?  @map("country_name") // Denormalized for high-throughput reads
+  statusId       String?  @map("status_id")
+  sourceId       String?  @map("source_id")
+  sourceName     String?  @map("source_name")   // Denormalized for high-throughput reads
+  subAffiliateId String?  @map("sub_affiliate_id")
+  referrer       String?  // Exact CSV mapping
+  tag1           String?  // Exact CSV mapping
+  ownerId        String?  @map("owner_id")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  // Relationships
+  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  country      Country?      @relation(fields: [countryId], references: [id], onDelete: SetNull)
+  status       LeadStatus?   @relation(fields: [statusId], references: [id], onDelete: SetNull)
+  source       LeadSource?   @relation(fields: [sourceId], references: [id], onDelete: SetNull)
+  subAffiliate SubAffiliate? @relation(fields: [subAffiliateId], references: [id], onDelete: SetNull)
+  owner        User?         @relation("LeadOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+
+  activities   LeadActivity[]
+  notes        LeadNote[]
+
+  // Indexes optimized for server-side pagination, search, and tenant isolation
+  @@index([organizationId])
+  @@index([organizationId, email])
+  @@index([organizationId, phone])
+  @@index([organizationId, statusId])
+  @@index([organizationId, ownerId])
+  @@index([organizationId, createdAt(sort: Desc)])
+  @@index([email])
+  @@index([phone])
+  @@map("leads")
+}
+
+model LeadActivity {
+  id             String       @id @default(uuid())
+  organizationId String       @map("organization_id")
+  leadId         String       @map("lead_id")
+  userId         String?      @map("user_id")
+  type           ActivityType
+  description    String
+  metadata       Json?
+  createdAt      DateTime     @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  lead         Lead         @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  user         User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, leadId])
+  @@index([leadId, createdAt(sort: Desc)])
+  @@map("lead_activities")
+}
+
+model LeadNote {
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  leadId         String   @map("lead_id")
+  userId         String   @map("user_id")
+  content        String   @db.Text
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  lead         Lead         @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, leadId])
+  @@map("lead_notes")
+}
+
+model Import {
+  id             String       @id @default(uuid())
+  organizationId String       @map("organization_id")
+  userId         String?      @map("user_id")
+  fileName       String       @map("file_name")
+  fileSize       Int          @map("file_size")
+  status         ImportStatus @default(QUEUED)
+  totalRows      Int          @default(0) @map("total_rows")
+  processedRows  Int          @default(0) @map("processed_rows")
+  importedRows   Int          @default(0) @map("imported_rows")
+  updatedRows    Int          @default(0) @map("updated_rows")
+  duplicateRows  Int          @default(0) @map("duplicate_rows")
+  invalidRows    Int          @default(0) @map("invalid_rows")
+  failedRows     Int          @default(0) @map("failed_rows")
+  startedAt      DateTime?    @map("started_at")
+  completedAt    DateTime?    @map("completed_at")
+  createdAt      DateTime     @default(now()) @map("created_at")
+
+  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
+  errors       ImportError[]
+
+  @@index([organizationId, createdAt(sort: Desc)])
+  @@map("imports")
+}
+
+model ImportError {
+  id        String   @id @default(uuid())
+  importId  String   @map("import_id")
+  rowNumber Int      @map("row_number")
+  field     String?
+  reason    String
+  rawData   Json?    @map("raw_data")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  import Import @relation(fields: [importId], references: [id], onDelete: Cascade)
+
+  @@index([importId, rowNumber])
+  @@map("import_errors")
+}
