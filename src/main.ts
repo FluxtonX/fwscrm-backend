@@ -13,10 +13,32 @@ async function bootstrap() {
     process.env.COOKIE_SECRET || 'dev_cookie_secret_fallback';
   app.use(cookieParser(cookieSecret));
 
-  // Configure CORS
-  const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+  // Configure CORS with production resilience
+  const rawFrontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+  const configuredOrigins = rawFrontendUrl
+    .split(',')
+    .map((url) => url.trim().replace(/\/+$/, ''))
+    .filter(Boolean);
+
   app.enableCors({
-    origin: [frontendUrl],
+    origin: (origin, callback) => {
+      // Allow server-to-server, curl, and native requests without origin header
+      if (!origin) return callback(null, true);
+      const cleanOrigin = origin.replace(/\/+$/, '');
+      try {
+        const hostname = new URL(cleanOrigin).hostname;
+        if (
+          configuredOrigins.includes(cleanOrigin) ||
+          hostname.endsWith('.vercel.app') ||
+          process.env.NODE_ENV !== 'production'
+        ) {
+          return callback(null, true);
+        }
+      } catch {
+        // invalid URL format, ignore
+      }
+      return callback(null, false);
+    },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
