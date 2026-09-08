@@ -30,11 +30,16 @@ export class StorageService {
     return sanitizedFilename;
   }
 
-  async getFileStream(key: string): Promise<Readable> {
+  getFilePath(key: string): string {
     const filePath = path.join(this.uploadDir, path.basename(key));
     if (!fs.existsSync(filePath)) {
       throw new Error(`File not found in storage: ${key}`);
     }
+    return filePath;
+  }
+
+  async getFileStream(key: string): Promise<Readable> {
+    const filePath = this.getFilePath(key);
     return fs.createReadStream(filePath);
   }
 
