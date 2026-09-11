@@ -83,9 +83,15 @@ export class UsersService {
 
   async listByOrganization(
     organizationId: string,
+    includeInactive = true,
   ): Promise<Omit<User, 'passwordHash'>[]> {
+    const where: any = { organizationId };
+    if (!includeInactive) {
+      where.isActive = true;
+    }
+
     return this.prisma.user.findMany({
-      where: { organizationId, isActive: true },
+      where,
       select: {
         id: true,
         organizationId: true,
@@ -97,7 +103,129 @@ export class UsersService {
         createdAt: true,
         updatedAt: true,
       },
-      orderBy: { lastName: 'asc' },
+      orderBy: { createdAt: 'desc' },
     });
+  }
+
+  async updateRole(
+    organizationId: string,
+    targetUserId: string,
+    newRole: Role,
+    actorId: string,
+  ): Promise<Omit<User, 'passwordHash'>> {
+    const targetUser = await this.prisma.user.findFirst({
+      where: { id: targetUserId, organizationId },
+    });
+
+    if (!targetUser) {
+      throw new NotFoundException(`User with ID "${targetUserId}" not found in this organization`);
+    }
+
+    // Safety rule: Prevent self-demotion if actor is the only Super Admin
+    if (targetUserId === actorId && targetUser.role === Role.SUPER_ADMIN && newRole !== Role.SUPER_ADMIN) {
+      const superAdminCount = await this.prisma.user.count({
+        where: { organizationId, role: Role.SUPER_ADMIN, isActive: true },
+      });
+      if (superAdminCount <= 1) {
+        throw new ConflictException('Cannot demote the only active Super Admin in the organization');
+      }
+    }
+
+    const previousRole = targetUser.role;
+
+    const updated = await this.prisma.user.update({
+      where: { id: targetUserId },
+      data: { role: newRole },
+      select: {
+        id: true,
+        organizationId: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        role: true,
+        isActive: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+
+    // Audit log
+    await this.prisma.auditLog.create({
+      data: {
+        organizationId,
+        actorId,
+        action: 'user.role_changed',
+        targetType: 'user',
+        targetId: targetUserId,
+        metadata: {
+          previousRole,
+          newRole,
+          email: targetUser.email,
+        },
+      },
+    });
+
+    this.logger.log(
+      `Role changed for user ${targetUser.email} from ${previousRole} to ${newRole} by actor ${actorId}`,
+    );
+
+    return updated;
+  }
+
+  async updateStatus(
+    organizationId: string,
+    targetUserId: string,
+    isActive: boolean,
+    actorId: string,
+  ): Promise<Omit<User, 'passwordHash'>> {
+    const targetUser = await this.prisma.user.findFirst({
+      where: { id: targetUserId, organizationId },
+    });
+
+    if (!targetUser) {
+      throw new NotFoundException(`User with ID "${targetUserId}" not found in this organization`);
+    }
+
+    // Safety rule: Prevent self-deactivation
+    if (targetUserId === actorId && !isActive) {
+      throw new ConflictException('You cannot deactivate your own administrative account');
+    }
+
+    const updated = await this.prisma.user.update({
+      where: { id: targetUserId },
+      data: { isActive },
+      select: {
+        id: true,
+        organizationId: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        role: true,
+        isActive: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+
+    // Audit log
+    await this.prisma.auditLog.create({
+      data: {
+        organizationId,
+        actorId,
+        action: isActive ? 'user.reactivated' : 'user.deactivated',
+        targetType: 'user',
+        targetId: targetUserId,
+        metadata: {
+          email: targetUser.email,
+          role: targetUser.role,
+        },
+      },
+    });
+
+    this.logger.log(
+      `Account ${isActive ? 'reactivated' : 'deactivated'} for user ${targetUser.email} by actor ${actorId}`,
+    );
+
+    return updated;
   }
 }

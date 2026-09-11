@@ -16,13 +16,13 @@ import { CsvImportProcessor } from './processors/csv-import.processor';
 import { StorageService } from './storage/storage.service';
 import { PrismaService } from '../database/prisma.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { RolesGuard } from '../auth/guards/roles.guard';
-import { Roles } from '../auth/decorators/roles.decorator';
+import { PermissionsGuard } from '../auth/guards/permissions.guard';
+import { RequirePermissions } from '../auth/decorators/require-permissions.decorator';
+import { Permission } from '../auth/permissions/permissions.enum';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { AuthenticatedUser } from '../auth/interfaces/jwt-payload.interface';
-import { Role } from '@prisma/client';
 
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 @Controller('imports')
 export class ImportsController {
   constructor(
@@ -33,7 +33,7 @@ export class ImportsController {
   ) {}
 
   @Post('preview')
-  @Roles(Role.SUPER_ADMIN, Role.ADMIN, Role.MANAGER)
+  @RequirePermissions(Permission.LEAD_IMPORT)
   @UseInterceptors(
     FileInterceptor('file', {
       limits: { fileSize: 50 * 1024 * 1024 }, // 50MB limit
@@ -52,7 +52,7 @@ export class ImportsController {
   }
 
   @Post()
-  @Roles(Role.SUPER_ADMIN, Role.ADMIN, Role.MANAGER)
+  @RequirePermissions(Permission.LEAD_IMPORT)
   @UseInterceptors(
     FileInterceptor('file', {
       limits: { fileSize: 50 * 1024 * 1024 }, // 50MB limit
@@ -141,7 +141,7 @@ export class ImportsController {
   }
 
   @Get()
-  @Roles(Role.SUPER_ADMIN, Role.ADMIN, Role.MANAGER, Role.AGENT)
+  @RequirePermissions(Permission.LEAD_IMPORT)
   async listImports(
     @CurrentUser() user: AuthenticatedUser,
     @Query('page') page?: string,
@@ -157,7 +157,7 @@ export class ImportsController {
   }
 
   @Get(':id')
-  @Roles(Role.SUPER_ADMIN, Role.ADMIN, Role.MANAGER, Role.AGENT)
+  @RequirePermissions(Permission.LEAD_IMPORT)
   async getImport(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,

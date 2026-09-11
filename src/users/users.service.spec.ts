@@ -21,10 +21,16 @@ describe('UsersService', () => {
     updatedAt: new Date(),
   };
 
-  const mockPrismaService = {
+  const mockPrismaService: any = {
     user: {
       findUnique: jest.fn(),
+      findFirst: jest.fn(),
       findMany: jest.fn(),
+      create: jest.fn(),
+      update: jest.fn(),
+      count: jest.fn(),
+    },
+    auditLog: {
       create: jest.fn(),
     },
   };
@@ -98,7 +104,7 @@ describe('UsersService', () => {
   });
 
   describe('listByOrganization', () => {
-    it('should return active users for the organization', async () => {
+    it('should return users for the organization', async () => {
       const mockList = [
         {
           id: 'user-1',
@@ -117,10 +123,53 @@ describe('UsersService', () => {
       const result = await service.listByOrganization(mockOrgId);
       expect(result).toEqual(mockList);
       expect(mockPrismaService.user.findMany).toHaveBeenCalledWith({
-        where: { organizationId: mockOrgId, isActive: true },
+        where: { organizationId: mockOrgId },
         select: expect.any(Object),
-        orderBy: { lastName: 'asc' },
+        orderBy: { createdAt: 'desc' },
       });
+    });
+  });
+
+  describe('updateRole', () => {
+    it('should update role and create audit log', async () => {
+      mockPrismaService.user.findFirst = jest.fn().mockResolvedValue({
+        id: 'user-2',
+        organizationId: mockOrgId,
+        role: Role.OPERATOR,
+        email: 'operator@example.com',
+      });
+      mockPrismaService.user.update = jest.fn().mockResolvedValue({
+        id: 'user-2',
+        role: Role.MANAGER,
+      });
+      mockPrismaService.auditLog = {
+        create: jest.fn().mockResolvedValue({}),
+      };
+
+      const result = await service.updateRole(
+        mockOrgId,
+        'user-2',
+        Role.MANAGER,
+        'admin-id',
+      );
+
+      expect(result.role).toBe(Role.MANAGER);
+      expect(mockPrismaService.auditLog.create).toHaveBeenCalled();
+    });
+  });
+
+  describe('updateStatus', () => {
+    it('should update status and prevent self-deactivation', async () => {
+      mockPrismaService.user.findFirst = jest.fn().mockResolvedValue({
+        id: 'admin-id',
+        organizationId: mockOrgId,
+        role: Role.SUPER_ADMIN,
+        email: 'admin@example.com',
+      });
+
+      await expect(
+        service.updateStatus(mockOrgId, 'admin-id', false, 'admin-id'),
+      ).rejects.toThrow(ConflictException);
     });
   });
 });

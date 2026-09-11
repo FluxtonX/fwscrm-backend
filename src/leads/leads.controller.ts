@@ -26,13 +26,13 @@ import {
   BulkDeleteDto,
 } from './dto/bulk-action.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { RolesGuard } from '../auth/guards/roles.guard';
-import { Roles } from '../auth/decorators/roles.decorator';
+import { PermissionsGuard } from '../auth/guards/permissions.guard';
+import { RequirePermissions } from '../auth/decorators/require-permissions.decorator';
+import { Permission } from '../auth/permissions/permissions.enum';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { AuthenticatedUser } from '../auth/interfaces/jwt-payload.interface';
-import { Role } from '@prisma/client';
 
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 @Controller('leads')
 export class LeadsController {
   constructor(
@@ -43,25 +43,25 @@ export class LeadsController {
   ) {}
 
   @Get('meta/statuses')
-  @Roles(Role.SUPER_ADMIN, Role.ADMIN, Role.MANAGER, Role.AGENT, Role.VIEWER)
+  @RequirePermissions(Permission.LEAD_VIEW)
   getStatuses(@CurrentUser() user: AuthenticatedUser) {
     return this.statusService.listByOrganization(user.organizationId);
   }
 
   @Get('meta/sources')
-  @Roles(Role.SUPER_ADMIN, Role.ADMIN, Role.MANAGER, Role.AGENT, Role.VIEWER)
+  @RequirePermissions(Permission.LEAD_VIEW)
   getSources(@CurrentUser() user: AuthenticatedUser) {
     return this.sourceService.listByOrganization(user.organizationId);
   }
 
   @Get('meta/countries')
-  @Roles(Role.SUPER_ADMIN, Role.ADMIN, Role.MANAGER, Role.AGENT, Role.VIEWER)
+  @RequirePermissions(Permission.LEAD_VIEW)
   getCountries() {
     return this.countryService.listAll();
   }
 
   @Get()
-  @Roles(Role.SUPER_ADMIN, Role.ADMIN, Role.MANAGER, Role.AGENT, Role.VIEWER)
+  @RequirePermissions(Permission.LEAD_VIEW)
   findAll(
     @CurrentUser() user: AuthenticatedUser,
     @Query() query: QueryLeadsDto,
@@ -70,7 +70,7 @@ export class LeadsController {
   }
 
   @Get('export')
-  @Roles(Role.SUPER_ADMIN, Role.ADMIN, Role.MANAGER, Role.AGENT)
+  @RequirePermissions(Permission.LEAD_EXPORT)
   async exportCsv(
     @CurrentUser() user: AuthenticatedUser,
     @Query() query: QueryLeadsDto,
@@ -88,7 +88,7 @@ export class LeadsController {
 
   @Post('export')
   @HttpCode(HttpStatus.OK)
-  @Roles(Role.SUPER_ADMIN, Role.ADMIN, Role.MANAGER, Role.AGENT)
+  @RequirePermissions(Permission.LEAD_EXPORT)
   async exportSelectedCsv(
     @CurrentUser() user: AuthenticatedUser,
     @Body() body: { leadIds?: string[] },
@@ -106,19 +106,19 @@ export class LeadsController {
   }
 
   @Get(':id')
-  @Roles(Role.SUPER_ADMIN, Role.ADMIN, Role.MANAGER, Role.AGENT, Role.VIEWER)
+  @RequirePermissions(Permission.LEAD_VIEW)
   findById(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
     return this.leadsService.findById(user.organizationId, id);
   }
 
   @Post()
-  @Roles(Role.SUPER_ADMIN, Role.ADMIN, Role.MANAGER, Role.AGENT)
+  @RequirePermissions(Permission.LEAD_CREATE)
   create(@CurrentUser() user: AuthenticatedUser, @Body() dto: CreateLeadDto) {
     return this.leadsService.create(user.organizationId, dto, user.id);
   }
 
   @Patch(':id')
-  @Roles(Role.SUPER_ADMIN, Role.ADMIN, Role.MANAGER, Role.AGENT)
+  @RequirePermissions(Permission.LEAD_EDIT)
   update(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,
@@ -128,14 +128,14 @@ export class LeadsController {
   }
 
   @Delete(':id')
-  @Roles(Role.SUPER_ADMIN, Role.ADMIN, Role.MANAGER)
+  @RequirePermissions(Permission.LEAD_DELETE)
   delete(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
     return this.leadsService.delete(user.organizationId, id);
   }
 
   @Post('bulk/assign')
   @HttpCode(HttpStatus.OK)
-  @Roles(Role.SUPER_ADMIN, Role.ADMIN, Role.MANAGER)
+  @RequirePermissions(Permission.LEAD_ASSIGN_OWNER)
   bulkAssign(
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: BulkAssignDto,
@@ -149,7 +149,7 @@ export class LeadsController {
 
   @Post('bulk/status')
   @HttpCode(HttpStatus.OK)
-  @Roles(Role.SUPER_ADMIN, Role.ADMIN, Role.MANAGER)
+  @RequirePermissions(Permission.LEAD_EDIT)
   bulkUpdateStatus(
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: BulkUpdateStatusDto,
@@ -163,7 +163,7 @@ export class LeadsController {
 
   @Post('bulk/delete')
   @HttpCode(HttpStatus.OK)
-  @Roles(Role.SUPER_ADMIN, Role.ADMIN)
+  @RequirePermissions(Permission.LEAD_DELETE)
   bulkDelete(
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: BulkDeleteDto,

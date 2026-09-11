@@ -4,7 +4,7 @@ import { UsersService } from './users.service';
 import { Role } from '@prisma/client';
 import { AuthenticatedUser } from '../auth/interfaces/jwt-payload.interface';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { RolesGuard } from '../auth/guards/roles.guard';
+import { PermissionsGuard } from '../auth/guards/permissions.guard';
 
 describe('UsersController', () => {
   let controller: UsersController;
@@ -16,7 +16,7 @@ describe('UsersController', () => {
     email: 'admin@fwscrm.com',
     firstName: 'Admin',
     lastName: 'User',
-    role: Role.ADMIN,
+    role: Role.SUPER_ADMIN,
   };
 
   const mockUsersList = [
@@ -26,7 +26,7 @@ describe('UsersController', () => {
       email: 'admin@fwscrm.com',
       firstName: 'Admin',
       lastName: 'User',
-      role: Role.ADMIN,
+      role: Role.SUPER_ADMIN,
       isActive: true,
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -35,6 +35,14 @@ describe('UsersController', () => {
 
   const mockUsersService = {
     listByOrganization: jest.fn().mockResolvedValue(mockUsersList),
+    updateRole: jest.fn().mockResolvedValue({
+      id: 'user-2',
+      role: Role.MANAGER,
+    }),
+    updateStatus: jest.fn().mockResolvedValue({
+      id: 'user-2',
+      isActive: false,
+    }),
   };
 
   beforeEach(async () => {
@@ -44,7 +52,7 @@ describe('UsersController', () => {
     })
       .overrideGuard(JwtAuthGuard)
       .useValue({ canActivate: () => true })
-      .overrideGuard(RolesGuard)
+      .overrideGuard(PermissionsGuard)
       .useValue({ canActivate: () => true })
       .compile();
 
@@ -59,6 +67,32 @@ describe('UsersController', () => {
   it('should return all users in the organization', async () => {
     const result = await controller.findAll(mockUser);
     expect(result).toEqual(mockUsersList);
-    expect(service.listByOrganization).toHaveBeenCalledWith('org-123');
+    expect(service.listByOrganization).toHaveBeenCalledWith('org-123', true);
+  });
+
+  it('should update a user role', async () => {
+    const result = await controller.updateRole(mockUser, 'user-2', {
+      role: Role.MANAGER,
+    });
+    expect(service.updateRole).toHaveBeenCalledWith(
+      'org-123',
+      'user-2',
+      Role.MANAGER,
+      'user-1',
+    );
+    expect(result.role).toBe(Role.MANAGER);
+  });
+
+  it('should update a user status', async () => {
+    const result = await controller.updateStatus(mockUser, 'user-2', {
+      isActive: false,
+    });
+    expect(service.updateStatus).toHaveBeenCalledWith(
+      'org-123',
+      'user-2',
+      false,
+      'user-1',
+    );
+    expect(result.isActive).toBe(false);
   });
 });
