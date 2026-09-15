@@ -14,6 +14,7 @@ import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { JwtPayload } from './interfaces/jwt-payload.interface';
+import { DEFAULT_LEAD_STATUSES } from '../leads/status.service';
 
 @Injectable()
 export class AuthService {
@@ -60,21 +61,7 @@ export class AuthService {
         });
 
         // Initialize default pipeline statuses for the new organization
-        const defaultStatuses = [
-          { name: 'New', color: '#0284C7', order: 1, isDefault: true },
-          { name: 'Contacted', color: '#EAB308', order: 2, isDefault: false },
-          { name: 'Qualified', color: '#0D9488', order: 3, isDefault: false },
-          {
-            name: 'Proposal Sent',
-            color: '#8B5CF6',
-            order: 4,
-            isDefault: false,
-          },
-          { name: 'Customer', color: '#10B981', order: 5, isDefault: false },
-          { name: 'Lost', color: '#EF4444', order: 6, isDefault: false },
-        ];
-
-        for (const s of defaultStatuses) {
+        for (const s of DEFAULT_LEAD_STATUSES) {
           await tx.leadStatus.create({
             data: {
               organizationId: org.id,

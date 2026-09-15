@@ -45,6 +45,9 @@ export interface DashboardPayload {
     unassignedCount: number;
     uncontactedCount: number;
     staleCount: number;
+    overdueFollowUpsCount: number;
+    dueTodayFollowUpsCount: number;
+    upcomingFollowUpsCount: number;
     items: Array<{
       id: string;
       title: string;
@@ -138,6 +141,10 @@ export class AnalyticsService {
   ): Promise<DashboardPayload> {
     const { start, previousStart, days } = this.getDateRange(timeframe);
 
+    const now = new Date();
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+
     // Run parallel database queries with strict organizationId filter
     const [
       totalLeads,
@@ -156,6 +163,9 @@ export class AnalyticsService {
       staleLeads,
       recentLeadsRaw,
       recentActivitiesRaw,
+      overdueFollowUpsCount,
+      dueTodayFollowUpsCount,
+      upcomingFollowUpsCount,
     ] = await Promise.all([
       // 1. Total leads in org
       this.prisma.lead.count({ where: { organizationId } }),
@@ -293,6 +303,33 @@ export class AnalyticsService {
           },
         },
       }),
+
+      // 17. Overdue follow-ups
+      this.prisma.leadReminder.count({
+        where: {
+          organizationId,
+          isCompleted: false,
+          dueDate: { lt: startOfToday },
+        },
+      }),
+
+      // 18. Due today follow-ups
+      this.prisma.leadReminder.count({
+        where: {
+          organizationId,
+          isCompleted: false,
+          dueDate: { gte: startOfToday, lte: endOfToday },
+        },
+      }),
+
+      // 19. Upcoming follow-ups
+      this.prisma.leadReminder.count({
+        where: {
+          organizationId,
+          isCompleted: false,
+          dueDate: { gt: endOfToday },
+        },
+      }),
     ]);
 
     // Trend calculation
@@ -406,6 +443,22 @@ export class AnalyticsService {
 
     // Action items
     const actionItemsList: DashboardPayload['actionItems']['items'] = [];
+    if (overdueFollowUpsCount > 0) {
+      actionItemsList.push({
+        id: 'overdue-followups',
+        title: `${overdueFollowUpsCount} Overdue Follow-Up${overdueFollowUpsCount > 1 ? 's' : ''}`,
+        reason: 'Follow-up actions that have passed their scheduled due date',
+        severity: 'high',
+      });
+    }
+    if (dueTodayFollowUpsCount > 0) {
+      actionItemsList.push({
+        id: 'due-today-followups',
+        title: `${dueTodayFollowUpsCount} Follow-Up${dueTodayFollowUpsCount > 1 ? 's' : ''} Due Today`,
+        reason: 'Follow-ups scheduled for customer outreach today',
+        severity: 'medium',
+      });
+    }
     if (unassignedCount > 0) {
       actionItemsList.push({
         id: 'unassigned',
@@ -517,6 +570,9 @@ export class AnalyticsService {
         unassignedCount,
         uncontactedCount,
         staleCount: staleLeads.length,
+        overdueFollowUpsCount,
+        dueTodayFollowUpsCount,
+        upcomingFollowUpsCount,
         items: actionItemsList,
       },
       recentLeads,

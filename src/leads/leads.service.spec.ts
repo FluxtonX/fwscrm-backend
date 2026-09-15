@@ -41,6 +41,7 @@ describe('LeadsService', () => {
     },
     leadActivity: {
       create: jest.fn(),
+      createMany: jest.fn(),
     },
   };
 
@@ -80,7 +81,56 @@ describe('LeadsService', () => {
         }),
       );
     });
+
+    it('should apply my_leads preset filtering by currentUserId', async () => {
+      mockPrismaService.lead.count.mockResolvedValue(1);
+      mockPrismaService.lead.findMany.mockResolvedValue([mockLead]);
+
+      await service.findAll(mockOrgId, { preset: 'my_leads' }, 'user-456');
+
+      expect(mockPrismaService.lead.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            AND: expect.arrayContaining([{ organizationId: mockOrgId }, { ownerId: 'user-456' }]),
+          }),
+        }),
+      );
+    });
+
+    it('should apply overdue preset filtering for incomplete past reminders', async () => {
+      mockPrismaService.lead.count.mockResolvedValue(1);
+      mockPrismaService.lead.findMany.mockResolvedValue([mockLead]);
+
+      await service.findAll(mockOrgId, { preset: 'overdue' });
+
+      expect(mockPrismaService.lead.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            AND: expect.arrayContaining([
+              { organizationId: mockOrgId },
+              expect.objectContaining({ reminders: expect.anything() }),
+            ]),
+          }),
+        }),
+      );
+    });
+
+    it('should apply unassigned preset filtering by ownerId null', async () => {
+      mockPrismaService.lead.count.mockResolvedValue(1);
+      mockPrismaService.lead.findMany.mockResolvedValue([mockLead]);
+
+      await service.findAll(mockOrgId, { preset: 'unassigned' });
+
+      expect(mockPrismaService.lead.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            AND: expect.arrayContaining([{ organizationId: mockOrgId }, { ownerId: null }]),
+          }),
+        }),
+      );
+    });
   });
+
 
   describe('create', () => {
     it('should create a lead when no duplicate exists', async () => {
@@ -127,6 +177,41 @@ describe('LeadsService', () => {
       await expect(service.findById('other-org', 'lead-1')).rejects.toThrow(
         NotFoundException,
       );
+    });
+  });
+
+  describe('bulkTag', () => {
+    it('should append tag when action is ADD and tag does not exist', async () => {
+      mockPrismaService.lead.findMany.mockResolvedValue([
+        { id: 'lead-1', tag1: 'VIP' },
+      ]);
+      mockPrismaService.lead.update.mockResolvedValue({});
+      mockPrismaService.leadActivity.createMany.mockResolvedValue({});
+
+      const result = await service.bulkTag(mockOrgId, ['lead-1'], 'Hot Lead', 'ADD');
+
+      expect(result.count).toBe(1);
+      expect(mockPrismaService.lead.update).toHaveBeenCalledWith({
+        where: { id: 'lead-1' },
+        data: { tag1: 'VIP, Hot Lead' },
+      });
+      expect(mockPrismaService.leadActivity.createMany).toHaveBeenCalled();
+    });
+
+    it('should remove tag when action is REMOVE', async () => {
+      mockPrismaService.lead.findMany.mockResolvedValue([
+        { id: 'lead-1', tag1: 'VIP, Hot Lead' },
+      ]);
+      mockPrismaService.lead.update.mockResolvedValue({});
+      mockPrismaService.leadActivity.createMany.mockResolvedValue({});
+
+      const result = await service.bulkTag(mockOrgId, ['lead-1'], 'VIP', 'REMOVE');
+
+      expect(result.count).toBe(1);
+      expect(mockPrismaService.lead.update).toHaveBeenCalledWith({
+        where: { id: 'lead-1' },
+        data: { tag1: 'Hot Lead' },
+      });
     });
   });
 });

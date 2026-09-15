@@ -4,6 +4,10 @@ import { PaginationQueryDto } from '../../common/dto/pagination.dto';
 export class QueryLeadsDto extends PaginationQueryDto {
   @IsOptional()
   @IsString()
+  preset?: string;
+
+  @IsOptional()
+  @IsString()
   status?: string;
 
   @IsOptional()
@@ -26,3 +30,4 @@ export class QueryLeadsDto extends PaginationQueryDto {
   @IsString()
   tag1?: string;
 }
+

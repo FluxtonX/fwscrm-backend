@@ -12,6 +12,7 @@ import { ImportsModule } from './imports/imports.module';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { InvitationsModule } from './invitations/invitations.module';
 import { EmailModule } from './email/email.module';
+import { RemindersModule } from './reminders/reminders.module';
 
 @Module({
   imports: [
@@ -27,6 +28,7 @@ import { EmailModule } from './email/email.module';
     LeadsModule,
     ActivitiesModule,
     NotesModule,
+    RemindersModule,
     ImportsModule,
     AnalyticsModule,
     InvitationsModule,

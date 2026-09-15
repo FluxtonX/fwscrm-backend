@@ -24,6 +24,7 @@ import {
   BulkAssignDto,
   BulkUpdateStatusDto,
   BulkDeleteDto,
+  BulkTagDto,
 } from './dto/bulk-action.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../auth/guards/permissions.guard';
@@ -66,8 +67,9 @@ export class LeadsController {
     @CurrentUser() user: AuthenticatedUser,
     @Query() query: QueryLeadsDto,
   ) {
-    return this.leadsService.findAll(user.organizationId, query);
+    return this.leadsService.findAll(user.organizationId, query, user.id);
   }
+
 
   @Get('export')
   @RequirePermissions(Permission.LEAD_EXPORT)
@@ -169,5 +171,20 @@ export class LeadsController {
     @Body() dto: BulkDeleteDto,
   ) {
     return this.leadsService.bulkDelete(user.organizationId, dto.leadIds);
+  }
+
+  @Post('bulk/tag')
+  @HttpCode(HttpStatus.OK)
+  @RequirePermissions(Permission.LEAD_EDIT)
+  bulkTag(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: BulkTagDto,
+  ) {
+    return this.leadsService.bulkTag(
+      user.organizationId,
+      dto.leadIds,
+      dto.tag,
+      dto.action,
+    );
   }
 }

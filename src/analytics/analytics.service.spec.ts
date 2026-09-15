@@ -24,6 +24,9 @@ describe('AnalyticsService', () => {
       count: jest.fn(),
       aggregate: jest.fn(),
     },
+    leadReminder: {
+      count: jest.fn().mockResolvedValue(0),
+    },
   };
 
   beforeEach(async () => {

@@ -61,6 +61,7 @@ model Organization {
   subAffiliates SubAffiliate[]
   activities    LeadActivity[]
   notes         LeadNote[]
+  reminders     LeadReminder[]
   imports       Import[]
   invitations   Invitation[]
   auditLogs     AuditLog[]
@@ -85,6 +86,7 @@ model User {
   ownedLeads        Lead[]         @relation("LeadOwner")
   activities        LeadActivity[]
   notes             LeadNote[]
+  reminders         LeadReminder[]
   imports           Import[]
   issuedInvitations Invitation[]   @relation("InvitedByUser")
   auditLogs         AuditLog[]
@@ -183,6 +185,7 @@ model Lead {
 
   activities   LeadActivity[]
   notes        LeadNote[]
+  reminders    LeadReminder[]
 
   // Indexes optimized for server-side pagination, search, and tenant isolation
   @@index([organizationId])
@@ -230,6 +233,26 @@ model LeadNote {
 
   @@index([organizationId, leadId])
   @@map("lead_notes")
+}
+
+model LeadReminder {
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  leadId         String   @map("lead_id")
+  userId         String   @map("user_id")
+  title          String
+  dueDate        DateTime @map("due_date")
+  isCompleted    Boolean  @default(false) @map("is_completed")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  lead         Lead         @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, leadId])
+  @@index([organizationId, dueDate])
+  @@map("lead_reminders")
 }
 
 model Import {

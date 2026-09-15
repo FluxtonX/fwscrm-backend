@@ -40,11 +40,15 @@ async function main() {
   // 3. Lead Statuses
   const statuses = [
     { name: 'New', color: '#0284C7', order: 1, isDefault: true },
-    { name: 'Contacted', color: '#EAB308', order: 2, isDefault: false },
-    { name: 'Qualified', color: '#0D9488', order: 3, isDefault: false },
-    { name: 'Proposal Sent', color: '#8B5CF6', order: 4, isDefault: false },
-    { name: 'Customer', color: '#10B981', order: 5, isDefault: false },
-    { name: 'Lost', color: '#EF4444', order: 6, isDefault: false },
+    { name: 'No Answer', color: '#F59E0B', order: 2, isDefault: false },
+    { name: 'Wrong Number', color: '#EF4444', order: 3, isDefault: false },
+    { name: 'Not Interested', color: '#64748B', order: 4, isDefault: false },
+    { name: 'Appointments', color: '#6366F1', order: 5, isDefault: false },
+    { name: 'Contacted', color: '#0D9488', order: 6, isDefault: false },
+    { name: 'Qualified', color: '#10B981', order: 7, isDefault: false },
+    { name: 'Proposal Sent', color: '#8B5CF6', order: 8, isDefault: false },
+    { name: 'Customer', color: '#059669', order: 9, isDefault: false },
+    { name: 'Lost', color: '#DC2626', order: 10, isDefault: false },
   ];
 
   for (const s of statuses) {

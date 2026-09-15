@@ -28,3 +28,19 @@ export class BulkDeleteDto {
   @IsString({ each: true })
   leadIds!: string[];
 }
+
+export class BulkTagDto {
+  @IsArray()
+  @ArrayNotEmpty()
+  @IsString({ each: true })
+  leadIds!: string[];
+
+  @IsString()
+  @IsNotEmpty()
+  tag!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  action!: 'ADD' | 'REMOVE' | 'SET';
+}
+

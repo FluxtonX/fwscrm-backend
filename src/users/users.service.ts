@@ -102,6 +102,9 @@ export class UsersService {
         isActive: true,
         createdAt: true,
         updatedAt: true,
+        _count: {
+          select: { ownedLeads: true },
+        },
       },
       orderBy: { createdAt: 'desc' },
     });

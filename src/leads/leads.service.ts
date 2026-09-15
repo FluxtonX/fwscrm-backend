@@ -20,52 +20,120 @@ export class LeadsService {
   async findAll(
     organizationId: string,
     query: QueryLeadsDto,
+    currentUserId?: string,
   ): Promise<PaginatedResult<Lead>> {
     const page = Math.max(1, query.page || 1);
     const limit = Math.min(100, Math.max(1, query.limit || 25));
     const skip = (page - 1) * limit;
 
-    const where: Prisma.LeadWhereInput = {
-      organizationId, // STRICT TENANT ISOLATION
-    };
+    const andConditions: Prisma.LeadWhereInput[] = [
+      { organizationId }, // STRICT TENANT ISOLATION
+    ];
 
     if (query.search && query.search.trim()) {
       const s = query.search.trim();
-      where.OR = [
-        { firstName: { contains: s, mode: 'insensitive' } },
-        { lastName: { contains: s, mode: 'insensitive' } },
-        { email: { contains: s, mode: 'insensitive' } },
-        { phone: { contains: s, mode: 'insensitive' } },
-      ];
+      andConditions.push({
+        OR: [
+          { firstName: { contains: s, mode: 'insensitive' } },
+          { lastName: { contains: s, mode: 'insensitive' } },
+          { email: { contains: s, mode: 'insensitive' } },
+          { phone: { contains: s, mode: 'insensitive' } },
+        ],
+      });
     }
 
     if (query.status) {
-      where.OR = [
-        ...(where.OR || []),
-        { statusId: query.status },
-        { status: { name: { equals: query.status, mode: 'insensitive' } } },
-      ];
+      andConditions.push({
+        OR: [
+          { statusId: query.status },
+          { status: { name: { equals: query.status, mode: 'insensitive' } } },
+        ],
+      });
     }
 
     if (query.country) {
-      where.countryName = { contains: query.country, mode: 'insensitive' };
+      andConditions.push({
+        countryName: { contains: query.country, mode: 'insensitive' },
+      });
     }
 
     if (query.leadSource) {
-      where.sourceName = { contains: query.leadSource, mode: 'insensitive' };
+      andConditions.push({
+        sourceName: { contains: query.leadSource, mode: 'insensitive' },
+      });
     }
 
     if (query.ownerId) {
-      where.ownerId = query.ownerId;
+      if (query.ownerId === 'unassigned') {
+        andConditions.push({ ownerId: null });
+      } else {
+        andConditions.push({ ownerId: query.ownerId });
+      }
     }
 
     if (query.referrer) {
-      where.referrer = { contains: query.referrer, mode: 'insensitive' };
+      andConditions.push({
+        referrer: { contains: query.referrer, mode: 'insensitive' },
+      });
     }
 
     if (query.tag1) {
-      where.tag1 = { contains: query.tag1, mode: 'insensitive' };
+      andConditions.push({
+        tag1: { contains: query.tag1, mode: 'insensitive' },
+      });
     }
+
+    // Smart View Presets
+    if (query.preset) {
+      const now = new Date();
+      const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+
+      switch (query.preset) {
+        case 'my_leads':
+          if (currentUserId) {
+            andConditions.push({ ownerId: currentUserId });
+          }
+          break;
+        case 'follow_up_today':
+          andConditions.push({
+            reminders: {
+              some: {
+                isCompleted: false,
+                dueDate: { gte: startOfToday, lte: endOfToday },
+              },
+            },
+          });
+          break;
+        case 'overdue':
+          andConditions.push({
+            reminders: {
+              some: {
+                isCompleted: false,
+                dueDate: { lt: startOfToday },
+              },
+            },
+          });
+          break;
+        case 'unassigned':
+          andConditions.push({ ownerId: null });
+          break;
+        case 'recent':
+          const last7Days = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+          andConditions.push({ createdAt: { gte: last7Days } });
+          break;
+        case 'all':
+        default:
+          break;
+      }
+    }
+
+    const where: Prisma.LeadWhereInput =
+      andConditions.length === 1
+        ? andConditions[0]
+        : { AND: andConditions };
+
+
 
     // Safe sort column mapping
     const allowedSortColumns: Record<string, string> = {
@@ -234,7 +302,7 @@ export class LeadsService {
     dto: UpdateLeadDto,
     updatedById?: string,
   ): Promise<Lead> {
-    await this.findById(organizationId, id); // Verify ownership
+    const existing = await this.findById(organizationId, id); // Verify ownership
 
     const data: Prisma.LeadUpdateInput = {};
     if (dto.firstName !== undefined) data.firstName = dto.firstName;
@@ -246,10 +314,18 @@ export class LeadsService {
     if (dto.country !== undefined) data.countryName = dto.country;
     if (dto.leadSource !== undefined) data.sourceName = dto.leadSource;
 
+    let newStatusName = '';
     if (dto.statusId !== undefined) {
       data.status = dto.statusId
         ? { connect: { id: dto.statusId } }
         : { disconnect: true };
+
+      if (dto.statusId) {
+        const s = await this.prisma.leadStatus.findFirst({
+          where: { id: dto.statusId, organizationId },
+        });
+        if (s) newStatusName = s.name;
+      }
     }
     if (dto.ownerId !== undefined) {
       data.owner = dto.ownerId
@@ -262,19 +338,28 @@ export class LeadsService {
       data,
     });
 
-    const activityType =
-      dto.statusId !== undefined
-        ? ActivityType.STATUS_CHANGED
-        : dto.ownerId !== undefined
-          ? ActivityType.OWNER_ASSIGNED
-          : ActivityType.UPDATED;
+    const isStatusChanged =
+      dto.statusId !== undefined && dto.statusId !== existing.statusId;
 
-    const activityDesc =
-      dto.statusId !== undefined
-        ? `Lead status updated`
-        : dto.ownerId !== undefined
-          ? `Lead assigned to new owner`
-          : `Lead information updated`;
+    let oldStatusName = 'Unassigned';
+    if (isStatusChanged && existing.statusId) {
+      const prev = await this.prisma.leadStatus.findFirst({
+        where: { id: existing.statusId, organizationId },
+      });
+      if (prev) oldStatusName = prev.name;
+    }
+
+    const activityType = isStatusChanged
+      ? ActivityType.STATUS_CHANGED
+      : dto.ownerId !== undefined
+        ? ActivityType.OWNER_ASSIGNED
+        : ActivityType.UPDATED;
+
+    const activityDesc = isStatusChanged
+      ? `Status changed from "${oldStatusName}" to "${newStatusName || 'Unassigned'}"`
+      : dto.ownerId !== undefined
+        ? `Lead assigned to new owner`
+        : `Lead information updated`;
 
     await this.prisma.leadActivity.create({
       data: {
@@ -283,6 +368,14 @@ export class LeadsService {
         userId: updatedById,
         type: activityType,
         description: activityDesc,
+        metadata: isStatusChanged
+          ? {
+              fromStatusId: existing.statusId,
+              fromStatusName: oldStatusName,
+              toStatusId: dto.statusId,
+              toStatusName: newStatusName || 'Unassigned',
+            }
+          : undefined,
       },
     });
 
@@ -381,6 +474,77 @@ export class LeadsService {
     );
     return { count: result.count };
   }
+
+  async bulkTag(
+    organizationId: string,
+    leadIds: string[],
+    tag: string,
+    action: 'ADD' | 'REMOVE' | 'SET' = 'ADD',
+  ): Promise<{ count: number }> {
+    const leads = await this.prisma.lead.findMany({
+      where: {
+        id: { in: leadIds },
+        organizationId,
+      },
+      select: { id: true, tag1: true },
+    });
+
+    const updatedIds: string[] = [];
+    const cleanTag = tag.trim();
+    if (!cleanTag) return { count: 0 };
+
+    for (const lead of leads) {
+      let currentTags = lead.tag1
+        ? lead.tag1.split(',').map((t) => t.trim()).filter(Boolean)
+        : [];
+      let newTagStr: string | null = lead.tag1;
+
+      if (action === 'ADD') {
+        if (!currentTags.some((t) => t.toLowerCase() === cleanTag.toLowerCase())) {
+          currentTags.push(cleanTag);
+          newTagStr = currentTags.join(', ');
+        }
+      } else if (action === 'REMOVE') {
+        currentTags = currentTags.filter(
+          (t) => t.toLowerCase() !== cleanTag.toLowerCase(),
+        );
+        newTagStr = currentTags.length > 0 ? currentTags.join(', ') : null;
+      } else if (action === 'SET') {
+        newTagStr = cleanTag;
+      }
+
+      if (newTagStr !== lead.tag1) {
+        await this.prisma.lead.update({
+          where: { id: lead.id },
+          data: { tag1: newTagStr },
+        });
+        updatedIds.push(lead.id);
+      }
+    }
+
+    if (updatedIds.length > 0) {
+      const descAction =
+        action === 'ADD'
+          ? 'Added tag'
+          : action === 'REMOVE'
+          ? 'Removed tag'
+          : 'Set tag';
+      await this.prisma.leadActivity.createMany({
+        data: updatedIds.map((leadId) => ({
+          organizationId,
+          leadId,
+          type: ActivityType.UPDATED,
+          description: `Bulk tag updated: ${descAction} "${cleanTag}"`,
+        })),
+      });
+    }
+
+    this.logger.log(
+      `Bulk tagged ${updatedIds.length} leads in org ${organizationId} with tag "${cleanTag}" (${action})`,
+    );
+    return { count: updatedIds.length };
+  }
+
 
   sanitizeCsvField(val: unknown): string {
     if (val === null || val === undefined) return '""';

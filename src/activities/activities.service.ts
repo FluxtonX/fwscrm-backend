@@ -46,7 +46,7 @@ export class ActivitiesService {
       },
       include: {
         user: {
-          select: { id: true, firstName: true, lastName: true, email: true },
+          select: { id: true, firstName: true, lastName: true, email: true, role: true },
         },
       },
       orderBy: { createdAt: 'desc' },
@@ -62,7 +62,7 @@ export class ActivitiesService {
       where: { organizationId },
       include: {
         user: {
-          select: { id: true, firstName: true, lastName: true, email: true },
+          select: { id: true, firstName: true, lastName: true, email: true, role: true },
         },
         lead: {
           select: { id: true, firstName: true, lastName: true, email: true },
@@ -72,4 +72,5 @@ export class ActivitiesService {
       take: Math.min(50, Math.max(1, limit)),
     });
   }
+
 }
