@@ -85,7 +85,10 @@ export class InvitationsService {
 
     if (existingInvitation) {
       // If already accepted, and user is active, conflict
-      if (existingInvitation.status === InvitationStatus.ACCEPTED && existingUser?.isActive) {
+      if (
+        existingInvitation.status === InvitationStatus.ACCEPTED &&
+        existingUser?.isActive
+      ) {
         throw new ConflictException(
           `User "${email}" has already accepted an invitation and is an active member.`,
         );
@@ -222,15 +225,21 @@ export class InvitationsService {
     });
 
     if (!invitation) {
-      throw new NotFoundException(`Invitation with ID "${invitationId}" not found`);
+      throw new NotFoundException(
+        `Invitation with ID "${invitationId}" not found`,
+      );
     }
 
     if (invitation.status === InvitationStatus.ACCEPTED) {
-      throw new BadRequestException('Cannot resend an invitation that has already been accepted');
+      throw new BadRequestException(
+        'Cannot resend an invitation that has already been accepted',
+      );
     }
 
     if (invitation.status === InvitationStatus.REVOKED) {
-      throw new BadRequestException('Cannot resend a revoked invitation. Please issue a new invitation');
+      throw new BadRequestException(
+        'Cannot resend a revoked invitation. Please issue a new invitation',
+      );
     }
 
     const { rawToken, tokenHash } = this.generateTokenPair();
@@ -302,11 +311,15 @@ export class InvitationsService {
     });
 
     if (!invitation) {
-      throw new NotFoundException(`Invitation with ID "${invitationId}" not found`);
+      throw new NotFoundException(
+        `Invitation with ID "${invitationId}" not found`,
+      );
     }
 
     if (invitation.status === InvitationStatus.ACCEPTED) {
-      throw new BadRequestException('Cannot revoke an invitation that has already been accepted');
+      throw new BadRequestException(
+        'Cannot revoke an invitation that has already been accepted',
+      );
     }
 
     if (invitation.status === InvitationStatus.REVOKED) {
@@ -358,7 +371,11 @@ export class InvitationsService {
    * Public-facing (for users opening the invitation link in browser).
    */
   async validateToken(rawToken: string): Promise<ValidatedInvitationInfo> {
-    if (!rawToken || typeof rawToken !== 'string' || rawToken.trim().length === 0) {
+    if (
+      !rawToken ||
+      typeof rawToken !== 'string' ||
+      rawToken.trim().length === 0
+    ) {
       throw new BadRequestException('Invitation token is required');
     }
 
@@ -382,7 +399,9 @@ export class InvitationsService {
     }
 
     if (invitation.status === InvitationStatus.REVOKED) {
-      throw new BadRequestException('This invitation has been revoked by an administrator');
+      throw new BadRequestException(
+        'This invitation has been revoked by an administrator',
+      );
     }
 
     if (invitation.status === InvitationStatus.ACCEPTED) {
@@ -392,7 +411,10 @@ export class InvitationsService {
     }
 
     const now = new Date();
-    if (invitation.status === InvitationStatus.EXPIRED || invitation.expiresAt < now) {
+    if (
+      invitation.status === InvitationStatus.EXPIRED ||
+      invitation.expiresAt < now
+    ) {
       // Mark expired in DB if not already
       if (invitation.status !== InvitationStatus.EXPIRED) {
         await this.prisma.invitation.update({
@@ -422,7 +444,11 @@ export class InvitationsService {
    * 4. Creates an audit log entry.
    */
   async acceptInvitation(dto: AcceptInvitationDto) {
-    if (!dto.token || typeof dto.token !== 'string' || dto.token.trim().length === 0) {
+    if (
+      !dto.token ||
+      typeof dto.token !== 'string' ||
+      dto.token.trim().length === 0
+    ) {
       throw new BadRequestException('Invitation token is required');
     }
 
@@ -440,7 +466,9 @@ export class InvitationsService {
     }
 
     if (invitation.status === InvitationStatus.REVOKED) {
-      throw new BadRequestException('This invitation has been revoked by an administrator');
+      throw new BadRequestException(
+        'This invitation has been revoked by an administrator',
+      );
     }
 
     if (invitation.status === InvitationStatus.ACCEPTED) {
@@ -450,7 +478,10 @@ export class InvitationsService {
     }
 
     const now = new Date();
-    if (invitation.status === InvitationStatus.EXPIRED || invitation.expiresAt < now) {
+    if (
+      invitation.status === InvitationStatus.EXPIRED ||
+      invitation.expiresAt < now
+    ) {
       throw new BadRequestException('This invitation link has expired');
     }
 
@@ -465,67 +496,71 @@ export class InvitationsService {
     });
 
     if (existingUser && existingUser.isActive) {
-      throw new ConflictException('An active account with this email address already exists');
+      throw new ConflictException(
+        'An active account with this email address already exists',
+      );
     }
 
     const passwordHash = await bcrypt.hash(dto.password, 12);
 
     // Atomic transaction: create/activate user + accept invitation + audit log
-    const { user, organization } = await this.prisma.$transaction(async (tx) => {
-      let activeUser;
+    const { user, organization } = await this.prisma.$transaction(
+      async (tx) => {
+        let activeUser;
 
-      if (existingUser) {
-        activeUser = await tx.user.update({
-          where: { id: existingUser.id },
+        if (existingUser) {
+          activeUser = await tx.user.update({
+            where: { id: existingUser.id },
+            data: {
+              passwordHash,
+              firstName: dto.firstName.trim(),
+              lastName: dto.lastName.trim(),
+              role: invitation.role,
+              isActive: true,
+              updatedAt: new Date(),
+            },
+          });
+        } else {
+          activeUser = await tx.user.create({
+            data: {
+              organizationId: invitation.organizationId,
+              email: invitation.email.toLowerCase(),
+              passwordHash,
+              firstName: dto.firstName.trim(),
+              lastName: dto.lastName.trim(),
+              role: invitation.role,
+              isActive: true,
+            },
+          });
+        }
+
+        // Mark invitation accepted
+        await tx.invitation.update({
+          where: { id: invitation.id },
           data: {
-            passwordHash,
-            firstName: dto.firstName.trim(),
-            lastName: dto.lastName.trim(),
-            role: invitation.role,
-            isActive: true,
-            updatedAt: new Date(),
+            status: InvitationStatus.ACCEPTED,
+            acceptedAt: new Date(),
           },
         });
-      } else {
-        activeUser = await tx.user.create({
+
+        // Log audit event
+        await tx.auditLog.create({
           data: {
             organizationId: invitation.organizationId,
-            email: invitation.email.toLowerCase(),
-            passwordHash,
-            firstName: dto.firstName.trim(),
-            lastName: dto.lastName.trim(),
-            role: invitation.role,
-            isActive: true,
+            actorId: activeUser.id,
+            action: 'user.invitation_accepted',
+            targetType: 'user',
+            targetId: activeUser.id,
+            metadata: {
+              email: invitation.email,
+              role: invitation.role,
+            },
           },
         });
-      }
 
-      // Mark invitation accepted
-      await tx.invitation.update({
-        where: { id: invitation.id },
-        data: {
-          status: InvitationStatus.ACCEPTED,
-          acceptedAt: new Date(),
-        },
-      });
-
-      // Log audit event
-      await tx.auditLog.create({
-        data: {
-          organizationId: invitation.organizationId,
-          actorId: activeUser.id,
-          action: 'user.invitation_accepted',
-          targetType: 'user',
-          targetId: activeUser.id,
-          metadata: {
-            email: invitation.email,
-            role: invitation.role,
-          },
-        },
-      });
-
-      return { user: activeUser, organization: invitation.organization };
-    });
+        return { user: activeUser, organization: invitation.organization };
+      },
+    );
 
     this.logger.log(
       `Invitation accepted and account activated for "${user.email}" (${user.role}) in org "${organization.name}"`,

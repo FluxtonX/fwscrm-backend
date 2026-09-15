@@ -118,16 +118,24 @@ export class UsersService {
     });
 
     if (!targetUser) {
-      throw new NotFoundException(`User with ID "${targetUserId}" not found in this organization`);
+      throw new NotFoundException(
+        `User with ID "${targetUserId}" not found in this organization`,
+      );
     }
 
     // Safety rule: Prevent self-demotion if actor is the only Super Admin
-    if (targetUserId === actorId && targetUser.role === Role.SUPER_ADMIN && newRole !== Role.SUPER_ADMIN) {
+    if (
+      targetUserId === actorId &&
+      targetUser.role === Role.SUPER_ADMIN &&
+      newRole !== Role.SUPER_ADMIN
+    ) {
       const superAdminCount = await this.prisma.user.count({
         where: { organizationId, role: Role.SUPER_ADMIN, isActive: true },
       });
       if (superAdminCount <= 1) {
-        throw new ConflictException('Cannot demote the only active Super Admin in the organization');
+        throw new ConflictException(
+          'Cannot demote the only active Super Admin in the organization',
+        );
       }
     }
 
@@ -183,12 +191,16 @@ export class UsersService {
     });
 
     if (!targetUser) {
-      throw new NotFoundException(`User with ID "${targetUserId}" not found in this organization`);
+      throw new NotFoundException(
+        `User with ID "${targetUserId}" not found in this organization`,
+      );
     }
 
     // Safety rule: Prevent self-deactivation
     if (targetUserId === actorId && !isActive) {
-      throw new ConflictException('You cannot deactivate your own administrative account');
+      throw new ConflictException(
+        'You cannot deactivate your own administrative account',
+      );
     }
 
     const updated = await this.prisma.user.update({

@@ -8,6 +8,7 @@ import { PrismaService } from '../database/prisma.service';
 import { ActivitiesService } from '../activities/activities.service';
 import { ActivityType, Role } from '@prisma/client';
 import { CreateNoteDto } from './dto/create-note.dto';
+import { UpdateNoteDto } from './dto/update-note.dto';
 
 @Injectable()
 export class NotesService {
@@ -42,7 +43,13 @@ export class NotesService {
       },
       include: {
         user: {
-          select: { id: true, firstName: true, lastName: true, email: true },
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            email: true,
+            role: true,
+          },
         },
       },
     });
@@ -80,11 +87,72 @@ export class NotesService {
       },
       include: {
         user: {
-          select: { id: true, firstName: true, lastName: true, email: true },
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            email: true,
+            role: true,
+          },
         },
       },
       orderBy: { createdAt: 'desc' },
     });
+  }
+
+  async update(
+    organizationId: string,
+    noteId: string,
+    userId: string,
+    userRole: Role,
+    dto: UpdateNoteDto,
+  ) {
+    const note = await this.prisma.leadNote.findFirst({
+      where: {
+        id: noteId,
+        organizationId, // Strict tenant check
+      },
+    });
+
+    if (!note) {
+      throw new NotFoundException(`Note with ID "${noteId}" not found`);
+    }
+
+    // Authorization: Operators must never edit notes (Section 4 & 8)
+    const isOwner = note.userId === userId;
+    const isPrivileged =
+      userRole === Role.SUPER_ADMIN ||
+      userRole === Role.ADMIN ||
+      userRole === Role.MANAGER;
+
+    if (userRole === Role.OPERATOR || (!isOwner && !isPrivileged)) {
+      throw new ForbiddenException(
+        'You do not have permission to edit this note',
+      );
+    }
+
+    const updatedNote = await this.prisma.leadNote.update({
+      where: { id: noteId },
+      data: {
+        content: dto.content.trim(),
+      },
+      include: {
+        user: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            email: true,
+            role: true,
+          },
+        },
+      },
+    });
+
+    this.logger.log(
+      `Updated note ${noteId} on lead ${note.leadId} by user ${userId}`,
+    );
+    return updatedNote;
   }
 
   async delete(
@@ -104,14 +172,14 @@ export class NotesService {
       throw new NotFoundException(`Note with ID "${noteId}" not found`);
     }
 
-    // Authorization: owner of note or Admin/Manager can delete
+    // Authorization: Operators must never delete notes (Section 4 & 9)
     const isOwner = note.userId === userId;
     const isPrivileged =
       userRole === Role.SUPER_ADMIN ||
       userRole === Role.ADMIN ||
       userRole === Role.MANAGER;
 
-    if (!isOwner && !isPrivileged) {
+    if (userRole === Role.OPERATOR || (!isOwner && !isPrivileged)) {
       throw new ForbiddenException(
         'You do not have permission to delete this note',
       );

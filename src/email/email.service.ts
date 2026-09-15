@@ -27,7 +27,9 @@ export class EmailService {
     const brevoApiKey = this.configService.get<string>('BREVO_API_KEY');
 
     if (brevoApiKey && brevoApiKey.trim().length > 0) {
-      this.logger.log(`Attempting transactional email delivery via Brevo to "${params.toEmail}"...`);
+      this.logger.log(
+        `Attempting transactional email delivery via Brevo to "${params.toEmail}"...`,
+      );
       const result = await this.brevoProvider.sendInvitation(params);
 
       if (result.success) {

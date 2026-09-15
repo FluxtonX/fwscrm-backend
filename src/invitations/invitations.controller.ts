@@ -91,7 +91,8 @@ export class InvitationsController {
     const activationUrl = `${frontendUrl}/accept-invitation?token=${result.rawToken}`;
 
     const inviterName =
-      `${user.firstName || ''} ${user.lastName || ''}`.trim() || 'Administrator';
+      `${user.firstName || ''} ${user.lastName || ''}`.trim() ||
+      'Administrator';
     const orgName = result.invitation.organizationName || 'Your Workspace';
 
     // Dispatch transactional invitation email via two-tier email service (Brevo or Dev Preview)
@@ -149,7 +150,8 @@ export class InvitationsController {
     const activationUrl = `${frontendUrl}/accept-invitation?token=${result.rawToken}`;
 
     const inviterName =
-      `${user.firstName || ''} ${user.lastName || ''}`.trim() || 'Administrator';
+      `${user.firstName || ''} ${user.lastName || ''}`.trim() ||
+      'Administrator';
     const orgName = result.invitation.organizationName || 'Your Workspace';
 
     // Dispatch renewed invitation email
@@ -185,6 +187,10 @@ export class InvitationsController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,
   ) {
-    return this.invitationsService.revokeInvitation(user.organizationId, id, user.id);
+    return this.invitationsService.revokeInvitation(
+      user.organizationId,
+      id,
+      user.id,
+    );
   }
 }

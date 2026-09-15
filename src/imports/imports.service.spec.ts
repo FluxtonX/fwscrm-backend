@@ -1,5 +1,9 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { ImportsService, suggestMappingForHeaders, AVAILABLE_CRM_FIELDS } from './imports.service';
+import {
+  ImportsService,
+  suggestMappingForHeaders,
+  AVAILABLE_CRM_FIELDS,
+} from './imports.service';
 import { PrismaService } from '../database/prisma.service';
 import { BadRequestException } from '@nestjs/common';
 
@@ -32,7 +36,15 @@ describe('ImportsService', () => {
 
   describe('suggestMappingForHeaders', () => {
     it('should correctly suggest CRM fields for standard header variations', () => {
-      const headers = ['First Name', 'Last Name', 'Email Address', 'Mobile Phone', 'Country', 'Lead Source', 'Random Unmapped'];
+      const headers = [
+        'First Name',
+        'Last Name',
+        'Email Address',
+        'Mobile Phone',
+        'Country',
+        'Lead Source',
+        'Random Unmapped',
+      ];
       const mapping = suggestMappingForHeaders(headers);
 
       expect(mapping['First Name']).toBe('firstName');
@@ -54,10 +66,18 @@ describe('ImportsService', () => {
 
     it('should correctly suggest owner field for owner-related headers', () => {
       expect(suggestMappingForHeaders(['Owner'])['Owner']).toBe('owner');
-      expect(suggestMappingForHeaders(['Assigned To'])['Assigned To']).toBe('owner');
-      expect(suggestMappingForHeaders(['Sales Rep'])['Sales Rep']).toBe('owner');
-      expect(suggestMappingForHeaders(['Assigned Rep'])['Assigned Rep']).toBe('owner');
-      expect(suggestMappingForHeaders(['Lead Owner'])['Lead Owner']).toBe('owner');
+      expect(suggestMappingForHeaders(['Assigned To'])['Assigned To']).toBe(
+        'owner',
+      );
+      expect(suggestMappingForHeaders(['Sales Rep'])['Sales Rep']).toBe(
+        'owner',
+      );
+      expect(suggestMappingForHeaders(['Assigned Rep'])['Assigned Rep']).toBe(
+        'owner',
+      );
+      expect(suggestMappingForHeaders(['Lead Owner'])['Lead Owner']).toBe(
+        'owner',
+      );
     });
 
     it('should strictly map explicit tag headers to tag1 and ignore non-tag fields like Balance', () => {
@@ -77,13 +97,20 @@ describe('ImportsService', () => {
 
   describe('parsePreview', () => {
     it('should parse a CSV buffer with headers and return preview data', () => {
-      const csvContent = 'First Name,Last Name,Email,Phone,Department\nJohn,Doe,john@example.com,+123456789,Engineering\nJane,Smith,jane@test.com,+987654321,Marketing';
+      const csvContent =
+        'First Name,Last Name,Email,Phone,Department\nJohn,Doe,john@example.com,+123456789,Engineering\nJane,Smith,jane@test.com,+987654321,Marketing';
       const buffer = Buffer.from(csvContent);
 
       const result = service.parsePreview(buffer, 'contacts.csv');
 
       expect(result.detectedHasHeader).toBe(true);
-      expect(result.headers).toEqual(['First Name', 'Last Name', 'Email', 'Phone', 'Department']);
+      expect(result.headers).toEqual([
+        'First Name',
+        'Last Name',
+        'Email',
+        'Phone',
+        'Department',
+      ]);
       expect(result.totalDetectedRows).toBe(2);
       expect(result.sampleRows.length).toBe(2);
       expect(result.sampleRows[0]['First Name']).toBe('John');
@@ -95,7 +122,8 @@ describe('ImportsService', () => {
     });
 
     it('should detect headerless CSV when row 0 contains email and numbers', () => {
-      const csvContent = 'john@example.com,123456789,Doe\njane@test.com,987654321,Smith';
+      const csvContent =
+        'john@example.com,123456789,Doe\njane@test.com,987654321,Smith';
       const buffer = Buffer.from(csvContent);
 
       const result = service.parsePreview(buffer, 'headerless.csv');
@@ -108,7 +136,9 @@ describe('ImportsService', () => {
 
     it('should throw BadRequestException when file buffer is empty', () => {
       const buffer = Buffer.from('');
-      expect(() => service.parsePreview(buffer, 'empty.csv')).toThrow(BadRequestException);
+      expect(() => service.parsePreview(buffer, 'empty.csv')).toThrow(
+        BadRequestException,
+      );
     });
   });
 });

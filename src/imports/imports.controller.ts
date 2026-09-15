@@ -41,7 +41,9 @@ export class ImportsController {
   )
   async previewFile(@UploadedFile() file: Express.Multer.File) {
     if (!file) {
-      throw new BadRequestException('A spreadsheet file (.csv or .xlsx) is required for preview');
+      throw new BadRequestException(
+        'A spreadsheet file (.csv or .xlsx) is required for preview',
+      );
     }
 
     if (!file.originalname.match(/\.(csv|tsv|txt|xlsx|xls)$/i)) {
@@ -78,17 +80,25 @@ export class ImportsController {
       try {
         mapping = JSON.parse(mappingRaw);
       } catch {
-        throw new BadRequestException('Invalid JSON provided for column mapping');
+        throw new BadRequestException(
+          'Invalid JSON provided for column mapping',
+        );
       }
     } else if (typeof mappingRaw === 'object' && mappingRaw !== null) {
       mapping = mappingRaw;
     }
 
-    const hasHeader = hasHeaderRaw === false || hasHeaderRaw === 'false' ? false : true;
+    const hasHeader =
+      hasHeaderRaw === false || hasHeaderRaw === 'false' ? false : true;
 
     // Validate ownerId server-side against the user's organization
     let validatedOwnerId: string | undefined = undefined;
-    if (ownerIdRaw && typeof ownerIdRaw === 'string' && ownerIdRaw.trim() && ownerIdRaw.trim() !== 'unassigned') {
+    if (
+      ownerIdRaw &&
+      typeof ownerIdRaw === 'string' &&
+      ownerIdRaw.trim() &&
+      ownerIdRaw.trim() !== 'unassigned'
+    ) {
       const targetUser = await this.prisma.user.findFirst({
         where: {
           id: ownerIdRaw.trim(),
@@ -97,7 +107,9 @@ export class ImportsController {
         },
       });
       if (!targetUser) {
-        throw new BadRequestException('Selected owner is not an active team member in your organization');
+        throw new BadRequestException(
+          'Selected owner is not an active team member in your organization',
+        );
       }
       validatedOwnerId = targetUser.id;
     }

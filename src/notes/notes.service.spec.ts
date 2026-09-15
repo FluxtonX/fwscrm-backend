@@ -16,6 +16,7 @@ describe('NotesService', () => {
       create: jest.fn(),
       findMany: jest.fn(),
       findFirst: jest.fn(),
+      update: jest.fn(),
       delete: jest.fn(),
     },
   };
@@ -55,7 +56,7 @@ describe('NotesService', () => {
       mockPrisma.leadNote.create.mockResolvedValue({
         id: 'note-1',
         content: 'Test note',
-        user: { firstName: 'John', lastName: 'Doe' },
+        user: { firstName: 'John', lastName: 'Doe', role: 'MANAGER' },
       });
 
       const result = await service.create('org-1', 'lead-1', 'user-1', {
@@ -67,23 +68,71 @@ describe('NotesService', () => {
     });
   });
 
-  describe('delete', () => {
-    it('should throw ForbiddenException if regular agent tries to delete another user note', async () => {
+  describe('update', () => {
+    it('should throw NotFoundException if note does not exist', async () => {
+      mockPrisma.leadNote.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.update('org-1', 'note-99', 'user-1', Role.MANAGER, {
+          content: 'Updated note',
+        }),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('should throw ForbiddenException if OPERATOR tries to update note', async () => {
       mockPrisma.leadNote.findFirst.mockResolvedValue({
         id: 'note-1',
-        userId: 'user-other',
+        userId: 'user-op',
         leadId: 'lead-1',
       });
 
       await expect(
-        service.delete('org-1', 'note-1', 'user-1', Role.AGENT),
+        service.update('org-1', 'note-1', 'user-op', Role.OPERATOR, {
+          content: 'Updated note',
+        }),
       ).rejects.toThrow(ForbiddenException);
     });
 
-    it('should allow note author to delete own note', async () => {
+    it('should allow MANAGER to update note', async () => {
       mockPrisma.leadNote.findFirst.mockResolvedValue({
         id: 'note-1',
-        userId: 'user-1',
+        userId: 'user-mgr',
+        leadId: 'lead-1',
+      });
+      mockPrisma.leadNote.update.mockResolvedValue({
+        id: 'note-1',
+        content: 'Updated note',
+        user: { firstName: 'Manager', lastName: 'User', role: 'MANAGER' },
+      });
+
+      const result = await service.update(
+        'org-1',
+        'note-1',
+        'user-mgr',
+        Role.MANAGER,
+        { content: 'Updated note' },
+      );
+      expect(result.content).toBe('Updated note');
+    });
+  });
+
+  describe('delete', () => {
+    it('should throw ForbiddenException if OPERATOR tries to delete note', async () => {
+      mockPrisma.leadNote.findFirst.mockResolvedValue({
+        id: 'note-1',
+        userId: 'user-op',
+        leadId: 'lead-1',
+      });
+
+      await expect(
+        service.delete('org-1', 'note-1', 'user-op', Role.OPERATOR),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('should allow Manager to delete note', async () => {
+      mockPrisma.leadNote.findFirst.mockResolvedValue({
+        id: 'note-1',
+        userId: 'user-other',
         leadId: 'lead-1',
       });
       mockPrisma.leadNote.delete.mockResolvedValue({ id: 'note-1' });
@@ -91,13 +140,13 @@ describe('NotesService', () => {
       const result = await service.delete(
         'org-1',
         'note-1',
-        'user-1',
-        Role.AGENT,
+        'user-mgr',
+        Role.MANAGER,
       );
       expect(result.success).toBe(true);
     });
 
-    it('should allow admin to delete any note', async () => {
+    it('should allow Super Admin to delete any note', async () => {
       mockPrisma.leadNote.findFirst.mockResolvedValue({
         id: 'note-1',
         userId: 'user-other',
@@ -109,7 +158,7 @@ describe('NotesService', () => {
         'org-1',
         'note-1',
         'admin-user',
-        Role.ADMIN,
+        Role.SUPER_ADMIN,
       );
       expect(result.success).toBe(true);
     });

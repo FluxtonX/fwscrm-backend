@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service';
 import { Import, ImportError, ImportStatus, Prisma } from '@prisma/client';
 import * as xlsx from 'xlsx';
@@ -11,44 +15,132 @@ export interface CrmFieldDefinition {
 }
 
 export const AVAILABLE_CRM_FIELDS: CrmFieldDefinition[] = [
-  { key: 'firstName', label: 'First Name', required: true, description: 'Given name' },
-  { key: 'lastName', label: 'Last Name', required: true, description: 'Family name' },
-  { key: 'email', label: 'Email', required: true, description: 'Primary email address' },
-  { key: 'phone', label: 'Phone', required: false, description: 'Direct or mobile telephone' },
-  { key: 'country', label: 'Country', required: false, description: 'Country name or ISO code' },
-  { key: 'leadSource', label: 'Lead Source', required: false, description: 'Acquisition / marketing channel' },
-  { key: 'referrer', label: 'Referrer', required: false, description: 'Referring agent or domain' },
-  { key: 'tag1', label: 'Tag', required: false, description: 'Lead categorization tag' },
-  { key: 'owner', label: 'Owner / Assigned Rep', required: false, description: 'Assigned team member (name, email, or user ID)' },
+  {
+    key: 'firstName',
+    label: 'First Name',
+    required: true,
+    description: 'Given name',
+  },
+  {
+    key: 'lastName',
+    label: 'Last Name',
+    required: true,
+    description: 'Family name',
+  },
+  {
+    key: 'email',
+    label: 'Email',
+    required: true,
+    description: 'Primary email address',
+  },
+  {
+    key: 'phone',
+    label: 'Phone',
+    required: false,
+    description: 'Direct or mobile telephone',
+  },
+  {
+    key: 'country',
+    label: 'Country',
+    required: false,
+    description: 'Country name or ISO code',
+  },
+  {
+    key: 'leadSource',
+    label: 'Lead Source',
+    required: false,
+    description: 'Acquisition / marketing channel',
+  },
+  {
+    key: 'referrer',
+    label: 'Referrer',
+    required: false,
+    description: 'Referring agent or domain',
+  },
+  {
+    key: 'tag1',
+    label: 'Tag',
+    required: false,
+    description: 'Lead categorization tag',
+  },
+  {
+    key: 'owner',
+    label: 'Owner / Assigned Rep',
+    required: false,
+    description: 'Assigned team member (name, email, or user ID)',
+  },
 ];
 
-export function suggestMappingForHeaders(headers: string[]): Record<string, string> {
+export function suggestMappingForHeaders(
+  headers: string[],
+): Record<string, string> {
   const mapping: Record<string, string> = {};
   const matchedCrmFields = new Set<string>();
 
   for (const header of headers) {
-    const clean = header.trim().toLowerCase().replace(/[\s_-]+/g, '');
+    const clean = header
+      .trim()
+      .toLowerCase()
+      .replace(/[\s_-]+/g, '');
     let matchedKey: string | null = null;
 
     if (['firstname', 'fname', 'first', 'givenname'].includes(clean)) {
       matchedKey = 'firstName';
-    } else if (['lastname', 'lname', 'last', 'surname', 'familyname'].includes(clean)) {
+    } else if (
+      ['lastname', 'lname', 'last', 'surname', 'familyname'].includes(clean)
+    ) {
       matchedKey = 'lastName';
     } else if (['name', 'fullname', 'contactname'].includes(clean)) {
       matchedKey = 'firstName';
-    } else if (['email', 'emailaddress', 'mail', 'primaryemail', 'e-mail'].includes(clean)) {
+    } else if (
+      ['email', 'emailaddress', 'mail', 'primaryemail', 'e-mail'].includes(
+        clean,
+      )
+    ) {
       matchedKey = 'email';
-    } else if (['phone', 'phonenumber', 'telephone', 'mobile', 'mobilephone', 'cell', 'cellphone', 'contactnumber'].includes(clean)) {
+    } else if (
+      [
+        'phone',
+        'phonenumber',
+        'telephone',
+        'mobile',
+        'mobilephone',
+        'cell',
+        'cellphone',
+        'contactnumber',
+      ].includes(clean)
+    ) {
       matchedKey = 'phone';
-    } else if (['country', 'nation', 'countrycode', 'countryname', 'location'].includes(clean)) {
+    } else if (
+      ['country', 'nation', 'countrycode', 'countryname', 'location'].includes(
+        clean,
+      )
+    ) {
       matchedKey = 'country';
-    } else if (['leadsource', 'source', 'channel', 'leadorigin', 'acquisitionchannel'].includes(clean)) {
+    } else if (
+      [
+        'leadsource',
+        'source',
+        'channel',
+        'leadorigin',
+        'acquisitionchannel',
+      ].includes(clean)
+    ) {
       matchedKey = 'leadSource';
     } else if (['referrer', 'referredby', 'ref'].includes(clean)) {
       matchedKey = 'referrer';
     } else if (['tag', 'tags', 'tag1', 'leadtag', 'lead_tag'].includes(clean)) {
       matchedKey = 'tag1';
-    } else if (['owner', 'assignedto', 'assignedrep', 'salesrep', 'leadowner', 'rep'].includes(clean)) {
+    } else if (
+      [
+        'owner',
+        'assignedto',
+        'assignedrep',
+        'salesrep',
+        'leadowner',
+        'rep',
+      ].includes(clean)
+    ) {
       matchedKey = 'owner';
     }
 
@@ -69,7 +161,9 @@ export class ImportsService {
     try {
       const workbook = xlsx.read(buffer, { type: 'buffer' });
       if (!workbook.SheetNames || workbook.SheetNames.length === 0) {
-        throw new BadRequestException('The uploaded file does not contain any sheets');
+        throw new BadRequestException(
+          'The uploaded file does not contain any sheets',
+        );
       }
 
       const firstSheetName = workbook.SheetNames[0];
@@ -104,17 +198,29 @@ export class ImportsService {
         sampleRows = rawRows.slice(1, 11).map((row) => {
           const rowObj: Record<string, string> = {};
           headers.forEach((header, idx) => {
-            rowObj[header] = row[idx] !== undefined && row[idx] !== null ? String(row[idx]).trim() : '';
+            rowObj[header] =
+              row[idx] !== undefined && row[idx] !== null
+                ? String(row[idx]).trim()
+                : '';
           });
           return rowObj;
         });
       } else {
-        const maxCols = Math.max(...rawRows.slice(0, 10).map((r) => r.length), 1);
-        headers = Array.from({ length: maxCols }, (_, idx) => `Column ${idx + 1}`);
+        const maxCols = Math.max(
+          ...rawRows.slice(0, 10).map((r) => r.length),
+          1,
+        );
+        headers = Array.from(
+          { length: maxCols },
+          (_, idx) => `Column ${idx + 1}`,
+        );
         sampleRows = rawRows.slice(0, 10).map((row) => {
           const rowObj: Record<string, string> = {};
           headers.forEach((header, idx) => {
-            rowObj[header] = row[idx] !== undefined && row[idx] !== null ? String(row[idx]).trim() : '';
+            rowObj[header] =
+              row[idx] !== undefined && row[idx] !== null
+                ? String(row[idx]).trim()
+                : '';
           });
           return rowObj;
         });
@@ -125,7 +231,9 @@ export class ImportsService {
       return {
         headers,
         detectedHasHeader,
-        totalDetectedRows: detectedHasHeader ? Math.max(0, rawRows.length - 1) : rawRows.length,
+        totalDetectedRows: detectedHasHeader
+          ? Math.max(0, rawRows.length - 1)
+          : rawRows.length,
         sampleRows,
         suggestedMapping,
         availableFields: AVAILABLE_CRM_FIELDS,

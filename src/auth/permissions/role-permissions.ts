@@ -18,6 +18,7 @@ export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
 
     // Notes
     Permission.NOTE_CREATE,
+    Permission.NOTE_EDIT,
     Permission.NOTE_DELETE,
 
     // User inspection only (cannot invite, edit roles, or deactivate)

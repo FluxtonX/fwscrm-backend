@@ -90,28 +90,67 @@ export class CsvImportProcessor {
       // Fallback auto-detection for backward compatibility
       for (const [key, val] of Object.entries(rawObj)) {
         if (val === undefined || val === null) continue;
-        const clean = key.trim().toLowerCase().replace(/[\s_-]+/g, '');
+        const clean = key
+          .trim()
+          .toLowerCase()
+          .replace(/[\s_-]+/g, '');
         const strVal = String(val).trim();
 
         if (['firstname', 'fname', 'first', 'givenname'].includes(clean)) {
           mappedRow.firstName = strVal;
-        } else if (['lastname', 'lname', 'last', 'surname', 'familyname'].includes(clean)) {
+        } else if (
+          ['lastname', 'lname', 'last', 'surname', 'familyname'].includes(clean)
+        ) {
           mappedRow.lastName = strVal;
         } else if (['name', 'fullname', 'contactname'].includes(clean)) {
           mappedRow.firstName = strVal;
-        } else if (['email', 'emailaddress', 'mail', 'primaryemail', 'e-mail'].includes(clean)) {
+        } else if (
+          ['email', 'emailaddress', 'mail', 'primaryemail', 'e-mail'].includes(
+            clean,
+          )
+        ) {
           mappedRow.email = strVal;
-        } else if (['phone', 'phonenumber', 'telephone', 'mobile', 'cell', 'contactnumber'].includes(clean)) {
+        } else if (
+          [
+            'phone',
+            'phonenumber',
+            'telephone',
+            'mobile',
+            'cell',
+            'contactnumber',
+          ].includes(clean)
+        ) {
           mappedRow.phone = strVal;
-        } else if (['country', 'nation', 'countrycode', 'countryname', 'location'].includes(clean)) {
+        } else if (
+          [
+            'country',
+            'nation',
+            'countrycode',
+            'countryname',
+            'location',
+          ].includes(clean)
+        ) {
           mappedRow.country = strVal;
-        } else if (['leadsource', 'source', 'channel', 'leadorigin'].includes(clean)) {
+        } else if (
+          ['leadsource', 'source', 'channel', 'leadorigin'].includes(clean)
+        ) {
           mappedRow.leadSource = strVal;
         } else if (['referrer', 'referredby', 'ref'].includes(clean)) {
           mappedRow.referrer = strVal;
-        } else if (['tag', 'tags', 'tag1', 'leadtag', 'lead_tag'].includes(clean)) {
+        } else if (
+          ['tag', 'tags', 'tag1', 'leadtag', 'lead_tag'].includes(clean)
+        ) {
           mappedRow.tag1 = strVal;
-        } else if (['owner', 'assignedto', 'assignedrep', 'salesrep', 'leadowner', 'rep'].includes(clean)) {
+        } else if (
+          [
+            'owner',
+            'assignedto',
+            'assignedrep',
+            'salesrep',
+            'leadowner',
+            'rep',
+          ].includes(clean)
+        ) {
           mappedRow.owner = strVal;
         }
       }
@@ -139,9 +178,7 @@ export class CsvImportProcessor {
     hasHeader = true,
     defaultOwnerId?: string,
   ): Promise<void> {
-    this.logger.log(
-      `Starting background processing for import ${importId}`,
-    );
+    this.logger.log(`Starting background processing for import ${importId}`);
 
     await this.prisma.import.update({
       where: { id: importId },
@@ -185,7 +222,9 @@ export class CsvImportProcessor {
         if (u.email) {
           userByEmail.set(u.email.trim().toLowerCase(), u.id);
         }
-        const fullName = `${u.firstName || ''} ${u.lastName || ''}`.trim().toLowerCase();
+        const fullName = `${u.firstName || ''} ${u.lastName || ''}`
+          .trim()
+          .toLowerCase();
         if (fullName) {
           userByName.set(fullName, u.id);
         }
@@ -200,7 +239,10 @@ export class CsvImportProcessor {
 
       if (isXlsx) {
         // Parse XLSX using SheetJS
-        const workbook = xlsx.readFile(filePath, { cellDates: true, dense: true });
+        const workbook = xlsx.readFile(filePath, {
+          cellDates: true,
+          dense: true,
+        });
         const firstSheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[firstSheetName];
         const rawGrid = xlsx.utils.sheet_to_json(worksheet, {
@@ -219,8 +261,14 @@ export class CsvImportProcessor {
           });
           dataRows = rawGrid.slice(1);
         } else {
-          const maxCols = Math.max(...rawGrid.slice(0, 10).map((r) => r.length), 1);
-          headers = Array.from({ length: maxCols }, (_, idx) => `Column ${idx + 1}`);
+          const maxCols = Math.max(
+            ...rawGrid.slice(0, 10).map((r) => r.length),
+            1,
+          );
+          headers = Array.from(
+            { length: maxCols },
+            (_, idx) => `Column ${idx + 1}`,
+          );
           dataRows = rawGrid;
         }
 
@@ -228,7 +276,10 @@ export class CsvImportProcessor {
           totalRows++;
           const rawObj: Record<string, string> = {};
           headers.forEach((h, idx) => {
-            const val = rowArr[idx] !== undefined && rowArr[idx] !== null ? String(rowArr[idx]).trim() : '';
+            const val =
+              rowArr[idx] !== undefined && rowArr[idx] !== null
+                ? String(rowArr[idx]).trim()
+                : '';
             rawObj[h] = val;
             rawObj[String(idx)] = val;
           });
@@ -579,7 +630,17 @@ export class CsvImportProcessor {
     rawData: Record<string, unknown>,
   ) {
     try {
-      const allowedKeys = ['firstName', 'lastName', 'email', 'phone', 'country', 'leadSource', 'referrer', 'tag1', 'owner'];
+      const allowedKeys = [
+        'firstName',
+        'lastName',
+        'email',
+        'phone',
+        'country',
+        'leadSource',
+        'referrer',
+        'tag1',
+        'owner',
+      ];
       const sanitized: Record<string, string> = {};
       if (rawData && typeof rawData === 'object') {
         for (const k of allowedKeys) {

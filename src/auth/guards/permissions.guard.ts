@@ -29,7 +29,9 @@ export class PermissionsGuard implements CanActivate {
     const user: AuthenticatedUser = request.user;
 
     if (!user || !user.role) {
-      throw new ForbiddenException('Access denied: User has no assigned role or valid session');
+      throw new ForbiddenException(
+        'Access denied: User has no assigned role or valid session',
+      );
     }
 
     // Super Admin and Admin have unrestricted access

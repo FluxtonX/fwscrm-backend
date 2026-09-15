@@ -11,6 +11,7 @@ export enum Permission {
 
   // Note Permissions
   NOTE_CREATE = 'note.create',
+  NOTE_EDIT = 'note.edit',
   NOTE_DELETE = 'note.delete',
 
   // User & Team Permissions

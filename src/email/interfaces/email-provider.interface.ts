@@ -15,5 +15,7 @@ export interface EmailDeliveryResult {
 }
 
 export interface EmailProvider {
-  sendInvitation(params: SendInvitationEmailParams): Promise<EmailDeliveryResult>;
+  sendInvitation(
+    params: SendInvitationEmailParams,
+  ): Promise<EmailDeliveryResult>;
 }

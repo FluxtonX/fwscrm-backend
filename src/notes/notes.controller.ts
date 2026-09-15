@@ -2,6 +2,7 @@ import {
   Controller,
   Get,
   Post,
+  Patch,
   Delete,
   Body,
   Param,
@@ -9,20 +10,21 @@ import {
 } from '@nestjs/common';
 import { NotesService } from './notes.service';
 import { CreateNoteDto } from './dto/create-note.dto';
+import { UpdateNoteDto } from './dto/update-note.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { RolesGuard } from '../auth/guards/roles.guard';
-import { Roles } from '../auth/decorators/roles.decorator';
+import { PermissionsGuard } from '../auth/guards/permissions.guard';
+import { RequirePermissions } from '../auth/decorators/require-permissions.decorator';
+import { Permission } from '../auth/permissions/permissions.enum';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { AuthenticatedUser } from '../auth/interfaces/jwt-payload.interface';
-import { Role } from '@prisma/client';
 
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 @Controller('leads/:leadId/notes')
 export class NotesController {
   constructor(private readonly notesService: NotesService) {}
 
   @Post()
-  @Roles(Role.SUPER_ADMIN, Role.ADMIN, Role.MANAGER, Role.AGENT)
+  @RequirePermissions(Permission.NOTE_CREATE)
   createNote(
     @CurrentUser() user: AuthenticatedUser,
     @Param('leadId') leadId: string,
@@ -32,7 +34,7 @@ export class NotesController {
   }
 
   @Get()
-  @Roles(Role.SUPER_ADMIN, Role.ADMIN, Role.MANAGER, Role.AGENT, Role.VIEWER)
+  @RequirePermissions(Permission.LEAD_VIEW)
   getNotes(
     @CurrentUser() user: AuthenticatedUser,
     @Param('leadId') leadId: string,
@@ -40,8 +42,24 @@ export class NotesController {
     return this.notesService.findByLead(user.organizationId, leadId);
   }
 
+  @Patch(':noteId')
+  @RequirePermissions(Permission.NOTE_EDIT)
+  updateNote(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('noteId') noteId: string,
+    @Body() dto: UpdateNoteDto,
+  ) {
+    return this.notesService.update(
+      user.organizationId,
+      noteId,
+      user.id,
+      user.role,
+      dto,
+    );
+  }
+
   @Delete(':noteId')
-  @Roles(Role.SUPER_ADMIN, Role.ADMIN, Role.MANAGER, Role.AGENT)
+  @RequirePermissions(Permission.NOTE_DELETE)
   deleteNote(
     @CurrentUser() user: AuthenticatedUser,
     @Param('noteId') noteId: string,

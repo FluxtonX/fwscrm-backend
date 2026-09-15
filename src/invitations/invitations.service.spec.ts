@@ -2,7 +2,11 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { InvitationsService } from './invitations.service';
 import { PrismaService } from '../database/prisma.service';
 import { Role, InvitationStatus } from '@prisma/client';
-import { ConflictException, BadRequestException, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  BadRequestException,
+  NotFoundException,
+} from '@nestjs/common';
 
 describe('InvitationsService', () => {
   let service: InvitationsService;
@@ -151,16 +155,18 @@ describe('InvitationsService', () => {
       };
 
       prisma.invitation.findFirst.mockResolvedValue(existingInv);
-      prisma.invitation.update.mockImplementation(({ data }: { data: any }) => ({
-        ...existingInv,
-        ...data,
-        invitedBy: {
-          id: mockInviterId,
-          firstName: 'Admin',
-          lastName: 'User',
-          email: 'admin@example.com',
-        },
-      }));
+      prisma.invitation.update.mockImplementation(
+        ({ data }: { data: any }) => ({
+          ...existingInv,
+          ...data,
+          invitedBy: {
+            id: mockInviterId,
+            firstName: 'Admin',
+            lastName: 'User',
+            email: 'admin@example.com',
+          },
+        }),
+      );
 
       const result = await service.resendInvitation(
         mockOrganizationId,
@@ -188,7 +194,11 @@ describe('InvitationsService', () => {
       });
 
       await expect(
-        service.resendInvitation(mockOrganizationId, 'inv-uuid-1', mockInviterId),
+        service.resendInvitation(
+          mockOrganizationId,
+          'inv-uuid-1',
+          mockInviterId,
+        ),
       ).rejects.toThrow(BadRequestException);
     });
   });
