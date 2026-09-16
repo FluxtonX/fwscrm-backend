@@ -8,6 +8,8 @@ import { PrismaService } from '../database/prisma.service';
 import { CreateReminderDto } from './dto/create-reminder.dto';
 import { UpdateReminderDto } from './dto/update-reminder.dto';
 
+import { NotificationsService } from '../notifications/notifications.service';
+
 export type FollowUpStatus = 'OVERDUE' | 'DUE_TODAY' | 'UPCOMING' | 'COMPLETED';
 
 export function computeFollowUpStatus(dueDate: Date, isCompleted: boolean): FollowUpStatus {
@@ -29,7 +31,10 @@ export function computeFollowUpStatus(dueDate: Date, isCompleted: boolean): Foll
 export class RemindersService {
   private readonly logger = new Logger(RemindersService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notificationsService: NotificationsService,
+  ) {}
 
   private enrichReminder<T extends { dueDate: Date; isCompleted: boolean }>(reminder: T) {
     return {
@@ -115,6 +120,26 @@ export class RemindersService {
         assignedUserId: targetUserId,
       },
     );
+
+    // Send instant assigned notification to recipient user
+    if (targetUserId) {
+      const leadName = `${lead.firstName || ''} ${lead.lastName || ''}`.trim() || lead.email || 'Lead';
+      const formattedDate = `${dueDate.toLocaleDateString()} at ${dueDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+
+      try {
+        await this.notificationsService.createAssignedNotification({
+          organizationId,
+          recipientUserId: targetUserId,
+          relatedLeadId: leadId,
+          relatedFollowUpId: reminder.id,
+          dueDate: reminder.dueDate,
+          title: `New Follow-Up Assigned: ${reminder.title}`,
+          message: `You have been assigned a follow-up "${reminder.title}" for ${leadName} scheduled for ${formattedDate}.`,
+        });
+      } catch (notifErr: any) {
+        this.logger.warn(`Failed to create instant assigned notification: ${notifErr?.message}`);
+      }
+    }
 
     this.logger.log(`Created reminder ${reminder.id} on lead ${leadId} by user ${currentUserId}`);
     return this.enrichReminder(reminder);

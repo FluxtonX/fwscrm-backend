@@ -3,6 +3,8 @@ import { RemindersService } from './reminders.service';
 import { PrismaService } from '../database/prisma.service';
 import { NotFoundException } from '@nestjs/common';
 
+import { NotificationsService } from '../notifications/notifications.service';
+
 describe('RemindersService', () => {
   let service: RemindersService;
 
@@ -25,11 +27,17 @@ describe('RemindersService', () => {
     },
   };
 
+  const mockNotificationsService = {
+    createAssignedNotification: jest.fn(),
+    createDueNotification: jest.fn(),
+  };
+
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         RemindersService,
         { provide: PrismaService, useValue: mockPrisma },
+        { provide: NotificationsService, useValue: mockNotificationsService },
       ],
     }).compile();
 

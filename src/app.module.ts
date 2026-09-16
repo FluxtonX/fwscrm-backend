@@ -13,6 +13,7 @@ import { AnalyticsModule } from './analytics/analytics.module';
 import { InvitationsModule } from './invitations/invitations.module';
 import { EmailModule } from './email/email.module';
 import { RemindersModule } from './reminders/reminders.module';
+import { NotificationsModule } from './notifications/notifications.module';
 
 @Module({
   imports: [
@@ -29,6 +30,7 @@ import { RemindersModule } from './reminders/reminders.module';
     ActivitiesModule,
     NotesModule,
     RemindersModule,
+    NotificationsModule,
     ImportsModule,
     AnalyticsModule,
     InvitationsModule,

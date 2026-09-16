@@ -115,6 +115,16 @@ export class LeadsService {
             },
           });
           break;
+        case 'upcoming':
+          andConditions.push({
+            reminders: {
+              some: {
+                isCompleted: false,
+                dueDate: { gt: endOfToday },
+              },
+            },
+          });
+          break;
         case 'unassigned':
           andConditions.push({ ownerId: null });
           break;

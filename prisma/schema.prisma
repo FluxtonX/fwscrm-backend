@@ -65,6 +65,7 @@ model Organization {
   imports       Import[]
   invitations   Invitation[]
   auditLogs     AuditLog[]
+  notifications Notification[]
 
   @@map("organizations")
 }
@@ -90,6 +91,7 @@ model User {
   imports           Import[]
   issuedInvitations Invitation[]   @relation("InvitedByUser")
   auditLogs         AuditLog[]
+  notifications     Notification[]
 
   @@unique([organizationId, email])
   @@index([organizationId])
@@ -183,9 +185,10 @@ model Lead {
   subAffiliate SubAffiliate? @relation(fields: [subAffiliateId], references: [id], onDelete: SetNull)
   owner        User?         @relation("LeadOwner", fields: [ownerId], references: [id], onDelete: SetNull)
 
-  activities   LeadActivity[]
-  notes        LeadNote[]
-  reminders    LeadReminder[]
+  activities    LeadActivity[]
+  notes         LeadNote[]
+  reminders     LeadReminder[]
+  notifications Notification[]
 
   // Indexes optimized for server-side pagination, search, and tenant isolation
   @@index([organizationId])
@@ -249,6 +252,7 @@ model LeadReminder {
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   lead         Lead         @relation(fields: [leadId], references: [id], onDelete: Cascade)
   user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  notifications Notification[]
 
   @@index([organizationId, leadId])
   @@index([organizationId, dueDate])
@@ -336,5 +340,36 @@ model AuditLog {
   @@index([organizationId, createdAt(sort: Desc)])
   @@index([organizationId, action])
   @@map("audit_logs")
+}
+
+enum NotificationType {
+  FOLLOW_UP_DUE
+  FOLLOW_UP_ASSIGNED
+  SYSTEM
+}
+
+model Notification {
+  id                String           @id @default(uuid())
+  organizationId    String           @map("organization_id")
+  recipientUserId   String           @map("recipient_user_id")
+  type              NotificationType @default(FOLLOW_UP_DUE)
+  title             String
+  message           String
+  relatedLeadId     String?          @map("related_lead_id")
+  relatedFollowUpId String?          @map("related_follow_up_id")
+  isRead            Boolean          @default(false) @map("is_read")
+  createdAt         DateTime         @default(now()) @map("created_at")
+  readAt            DateTime?        @map("read_at")
+  dueOccurrence     DateTime?        @map("due_occurrence")
+
+  organization    Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  recipientUser   User          @relation(fields: [recipientUserId], references: [id], onDelete: Cascade)
+  relatedLead     Lead?         @relation(fields: [relatedLeadId], references: [id], onDelete: SetNull)
+  relatedFollowUp LeadReminder? @relation(fields: [relatedFollowUpId], references: [id], onDelete: SetNull)
+
+  @@unique([organizationId, relatedFollowUpId, type, dueOccurrence])
+  @@index([organizationId, recipientUserId, isRead])
+  @@index([recipientUserId, createdAt(sort: Desc)])
+  @@map("notifications")
 }
 
