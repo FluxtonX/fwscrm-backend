@@ -10,7 +10,6 @@ import { ActivitiesModule } from './activities/activities.module';
 import { NotesModule } from './notes/notes.module';
 import { ImportsModule } from './imports/imports.module';
 import { AnalyticsModule } from './analytics/analytics.module';
-import { InvitationsModule } from './invitations/invitations.module';
 import { EmailModule } from './email/email.module';
 import { RemindersModule } from './reminders/reminders.module';
 import { NotificationsModule } from './notifications/notifications.module';
@@ -33,7 +32,6 @@ import { NotificationsModule } from './notifications/notifications.module';
     NotificationsModule,
     ImportsModule,
     AnalyticsModule,
-    InvitationsModule,
     EmailModule,
   ],
 })

@@ -34,6 +34,13 @@ describe('UsersController', () => {
   ];
 
   const mockUsersService = {
+    createMember: jest.fn().mockResolvedValue({
+      id: 'user-new',
+      organizationId: 'org-123',
+      email: 'newuser@fwscrm.com',
+      role: Role.MANAGER,
+      isActive: true,
+    }),
     listByOrganization: jest.fn().mockResolvedValue(mockUsersList),
     updateRole: jest.fn().mockResolvedValue({
       id: 'user-2',
@@ -62,6 +69,22 @@ describe('UsersController', () => {
 
   it('should be defined', () => {
     expect(controller).toBeDefined();
+  });
+
+  it('should create a team member under the authenticated user organization', async () => {
+    const dto = {
+      email: 'newuser@fwscrm.com',
+      password: 'Password123!',
+      confirmPassword: 'Password123!',
+      role: Role.MANAGER,
+    };
+    const result = await controller.createMember(mockUser, dto as any);
+    expect(service.createMember).toHaveBeenCalledWith(
+      'org-123',
+      'user-1',
+      dto,
+    );
+    expect(result.id).toBe('user-new');
   });
 
   it('should return all users in the organization', async () => {

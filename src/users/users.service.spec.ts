@@ -1,7 +1,11 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { UsersService } from './users.service';
 import { PrismaService } from '../database/prisma.service';
-import { ConflictException, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 import { Role } from '@prisma/client';
 
 describe('UsersService', () => {
@@ -52,6 +56,153 @@ describe('UsersService', () => {
 
   it('should be defined', () => {
     expect(service).toBeDefined();
+  });
+
+  describe('createMember', () => {
+    it('should create member with MANAGER role, hashed password, and audit log', async () => {
+      mockPrismaService.user.findUnique.mockResolvedValue(null);
+      mockPrismaService.user.create.mockResolvedValue({
+        id: 'user-manager-1',
+        organizationId: mockOrgId,
+        email: 'manager@fwscrm.com',
+        firstName: 'Manager',
+        lastName: 'One',
+        role: Role.MANAGER,
+        isActive: true,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+      mockPrismaService.auditLog.create.mockResolvedValue({});
+
+      const result = await service.createMember(mockOrgId, 'admin-1', {
+        email: 'manager@fwscrm.com',
+        password: 'Password123!',
+        confirmPassword: 'Password123!',
+        role: Role.MANAGER,
+        firstName: 'Manager',
+        lastName: 'One',
+      });
+
+      expect(result.role).toBe(Role.MANAGER);
+      expect(result.email).toBe('manager@fwscrm.com');
+      expect(mockPrismaService.user.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            organizationId: mockOrgId,
+            email: 'manager@fwscrm.com',
+            role: Role.MANAGER,
+            isActive: true,
+          }),
+        }),
+      );
+      expect(mockPrismaService.auditLog.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            action: 'user.created',
+            targetType: 'user',
+          }),
+        }),
+      );
+    });
+
+    it('should throw BadRequestException if passwords do not match', async () => {
+      await expect(
+        service.createMember(mockOrgId, 'admin-1', {
+          email: 'op@fwscrm.com',
+          password: 'Password123!',
+          confirmPassword: 'DifferentPassword!',
+          role: Role.OPERATOR,
+        }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should throw BadRequestException if role is not MANAGER or OPERATOR', async () => {
+      await expect(
+        service.createMember(mockOrgId, 'admin-1', {
+          email: 'sa@fwscrm.com',
+          password: 'Password123!',
+          confirmPassword: 'Password123!',
+          role: Role.SUPER_ADMIN,
+        }),
+      ).rejects.toThrow(BadRequestException);
+
+      await expect(
+        service.createMember(mockOrgId, 'admin-1', {
+          email: 'admin@fwscrm.com',
+          password: 'Password123!',
+          confirmPassword: 'Password123!',
+          role: Role.ADMIN,
+        }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should never expose or return passwordHash in result', async () => {
+      mockPrismaService.user.findUnique.mockResolvedValue(null);
+      mockPrismaService.user.create.mockResolvedValue({
+        id: 'user-manager-secure',
+        organizationId: mockOrgId,
+        email: 'secure@fwscrm.com',
+        firstName: 'Secure',
+        lastName: 'Member',
+        role: Role.MANAGER,
+        isActive: true,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+      mockPrismaService.auditLog.create.mockResolvedValue({});
+
+      const result = await service.createMember(mockOrgId, 'admin-1', {
+        email: 'secure@fwscrm.com',
+        password: 'Password123!',
+        confirmPassword: 'Password123!',
+        role: Role.MANAGER,
+      });
+
+      expect((result as any).passwordHash).toBeUndefined();
+      expect((result as any).password).toBeUndefined();
+    });
+
+    it('should throw ConflictException on duplicate email in org', async () => {
+      mockPrismaService.user.findUnique.mockResolvedValue(mockUser);
+
+      await expect(
+        service.createMember(mockOrgId, 'admin-1', {
+          email: 'agent@fwscrm.com',
+          password: 'Password123!',
+          confirmPassword: 'Password123!',
+          role: Role.OPERATOR,
+        }),
+      ).rejects.toThrow(ConflictException);
+    });
+
+    it('should derive firstName from email prefix when firstName is omitted', async () => {
+      mockPrismaService.user.findUnique.mockResolvedValue(null);
+      mockPrismaService.user.create.mockImplementation(({ data }: any) =>
+        Promise.resolve({
+          id: 'user-op-1',
+          ...data,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        }),
+      );
+      mockPrismaService.auditLog.create.mockResolvedValue({});
+
+      const result = await service.createMember(mockOrgId, 'admin-1', {
+        email: 'john.smith@fwscrm.com',
+        password: 'Password123!',
+        confirmPassword: 'Password123!',
+        role: Role.OPERATOR,
+      });
+
+      expect(mockPrismaService.user.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            firstName: 'john.smith',
+            lastName: '',
+          }),
+        }),
+      );
+    });
   });
 
   describe('create', () => {

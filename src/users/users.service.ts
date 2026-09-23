@@ -3,9 +3,12 @@ import {
   Logger,
   ConflictException,
   NotFoundException,
+  BadRequestException,
 } from '@nestjs/common';
+import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../database/prisma.service';
 import { User, Role } from '@prisma/client';
+import { CreateMemberDto } from './dto/create-member.dto';
 
 export interface CreateUserData {
   organizationId: string;
@@ -19,8 +22,98 @@ export interface CreateUserData {
 @Injectable()
 export class UsersService {
   private readonly logger = new Logger(UsersService.name);
+  private readonly saltRounds = 12;
 
   constructor(private readonly prisma: PrismaService) {}
+
+  async createMember(
+    organizationId: string,
+    actorId: string,
+    dto: CreateMemberDto,
+  ): Promise<Omit<User, 'passwordHash'>> {
+    if (dto.password !== dto.confirmPassword) {
+      throw new BadRequestException('Passwords do not match');
+    }
+
+    if (dto.role !== Role.MANAGER && dto.role !== Role.OPERATOR) {
+      throw new BadRequestException(
+        'Only MANAGER and OPERATOR roles can be assigned to new team members',
+      );
+    }
+
+    const normalizedEmail = dto.email.toLowerCase().trim();
+
+    const existing = await this.prisma.user.findUnique({
+      where: {
+        organizationId_email: {
+          organizationId,
+          email: normalizedEmail,
+        },
+      },
+    });
+
+    if (existing) {
+      throw new ConflictException(
+        `A user with this email address already exists in this organization`,
+      );
+    }
+
+    const passwordHash = await bcrypt.hash(dto.password, this.saltRounds);
+
+    const firstName =
+      dto.firstName && dto.firstName.trim().length > 0
+        ? dto.firstName.trim()
+        : normalizedEmail.split('@')[0];
+    const lastName =
+      dto.lastName && dto.lastName.trim().length > 0
+        ? dto.lastName.trim()
+        : '';
+
+    const user = await this.prisma.user.create({
+      data: {
+        organizationId,
+        email: normalizedEmail,
+        passwordHash,
+        firstName,
+        lastName,
+        role: dto.role,
+        isActive: true,
+      },
+      select: {
+        id: true,
+        organizationId: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        role: true,
+        isActive: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+
+    // Audit log
+    await this.prisma.auditLog.create({
+      data: {
+        organizationId,
+        actorId,
+        action: 'user.created',
+        targetType: 'user',
+        targetId: user.id,
+        metadata: {
+          email: user.email,
+          role: user.role,
+        },
+      },
+    });
+
+    this.logger.log(
+      `Created team member "${user.email}" (${user.role}) in org "${organizationId}" by actor "${actorId}"`,
+    );
+
+    return user;
+  }
+
 
   async create(data: CreateUserData): Promise<User> {
     const existing = await this.prisma.user.findUnique({
