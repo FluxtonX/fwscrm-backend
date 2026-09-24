@@ -8,6 +8,7 @@ import {
   AuthenticatedUser,
 } from '../interfaces/jwt-payload.interface';
 import { PrismaService } from '../../database/prisma.service';
+import { Role } from '@prisma/client';
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
@@ -46,6 +47,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         firstName: true,
         lastName: true,
         isActive: true,
+        accessExpiresAt: true,
       },
     });
 
@@ -53,6 +55,15 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       throw new UnauthorizedException(
         'User session is invalid or has been deactivated',
       );
+    }
+
+    // Enforce access expiration on active sessions for Manager and Operator
+    if (
+      (user.role === Role.MANAGER || user.role === Role.OPERATOR) &&
+      user.accessExpiresAt &&
+      new Date() >= user.accessExpiresAt
+    ) {
+      throw new UnauthorizedException('Access denied.');
     }
 
     return {

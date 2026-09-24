@@ -50,6 +50,14 @@ describe('UsersController', () => {
       id: 'user-2',
       isActive: false,
     }),
+    updateUserIp: jest.fn().mockResolvedValue({
+      id: 'user-2',
+      allowedIp: '203.0.113.50',
+    }),
+    adminResetPassword: jest.fn().mockResolvedValue({
+      success: true,
+      message: 'Password for user@example.com updated',
+    }),
   };
 
   beforeEach(async () => {
@@ -117,5 +125,29 @@ describe('UsersController', () => {
       'user-1',
     );
     expect(result.isActive).toBe(false);
+  });
+
+  it('should update a user IP configuration', async () => {
+    const dto = { allowedIp: '203.0.113.50' };
+    const result = await controller.updateUserIp(mockUser, 'user-2', dto);
+    expect(service.updateUserIp).toHaveBeenCalledWith(
+      'org-123',
+      'user-2',
+      dto,
+      'user-1',
+    );
+    expect(result.allowedIp).toBe('203.0.113.50');
+  });
+
+  it('should reset a user password as admin', async () => {
+    const dto = { password: 'NewSecurePassword123!' };
+    const result = await controller.adminResetPassword(mockUser, 'user-2', dto);
+    expect(service.adminResetPassword).toHaveBeenCalledWith(
+      'org-123',
+      'user-2',
+      dto,
+      'user-1',
+    );
+    expect(result.success).toBe(true);
   });
 });

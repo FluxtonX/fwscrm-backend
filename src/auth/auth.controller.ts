@@ -3,12 +3,13 @@ import {
   Post,
   Get,
   Body,
+  Req,
   Res,
   UseGuards,
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
-import { Response } from 'express';
+import { Request, Response } from 'express';
 import { AuthService } from './auth.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
@@ -38,9 +39,26 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   async login(
     @Body() dto: LoginDto,
+    @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ) {
-    const result = await this.authService.login(dto);
+    const forwarded = req?.headers?.['x-forwarded-for'];
+    const forwardedIp = Array.isArray(forwarded)
+      ? forwarded[0]
+      : typeof forwarded === 'string'
+        ? forwarded.split(',')[0].trim()
+        : null;
+    const realIp = Array.isArray(req?.headers?.['x-real-ip'])
+      ? req?.headers?.['x-real-ip'][0]
+      : req?.headers?.['x-real-ip'];
+
+    const clientIp =
+      forwardedIp ||
+      (typeof realIp === 'string' ? realIp.trim() : null) ||
+      req?.ip ||
+      req?.socket?.remoteAddress;
+
+    const result = await this.authService.login(dto, clientIp);
     this.authService.setAuthCookie(res, result.token);
     return {
       user: result.user,

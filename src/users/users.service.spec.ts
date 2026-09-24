@@ -6,7 +6,7 @@ import {
   NotFoundException,
   BadRequestException,
 } from '@nestjs/common';
-import { Role } from '@prisma/client';
+import { Role, AccessType } from '@prisma/client';
 
 describe('UsersService', () => {
   let service: UsersService;
@@ -203,6 +203,84 @@ describe('UsersService', () => {
         }),
       );
     });
+
+    it('should validate and save allowedIp and PERMANENT accessType', async () => {
+      mockPrismaService.user.findUnique.mockResolvedValue(null);
+      mockPrismaService.user.create.mockResolvedValue({
+        id: 'user-ip-1',
+        organizationId: mockOrgId,
+        email: 'ipuser@fwscrm.com',
+        firstName: 'IP',
+        lastName: 'User',
+        role: Role.OPERATOR,
+        isActive: true,
+        accessType: AccessType.PERMANENT,
+        allowedIp: '203.0.113.25',
+        accessExpiresAt: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+      mockPrismaService.auditLog.create.mockResolvedValue({});
+
+      const result = await service.createMember(mockOrgId, 'admin-1', {
+        email: 'ipuser@fwscrm.com',
+        password: 'Password123!',
+        confirmPassword: 'Password123!',
+        role: Role.OPERATOR,
+        allowedIp: '  203.0.113.25  ',
+        accessType: AccessType.PERMANENT,
+      });
+
+      expect(result.allowedIp).toBe('203.0.113.25');
+      expect(mockPrismaService.user.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            allowedIp: '203.0.113.25',
+            accessType: AccessType.PERMANENT,
+            accessExpiresAt: null,
+          }),
+        }),
+      );
+    });
+
+    it('should reject invalid allowed IP format', async () => {
+      await expect(
+        service.createMember(mockOrgId, 'admin-1', {
+          email: 'badip@fwscrm.com',
+          password: 'Password123!',
+          confirmPassword: 'Password123!',
+          role: Role.OPERATOR,
+          allowedIp: 'invalid-ip-format',
+        }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should reject TEMPORARY access without expiration date', async () => {
+      await expect(
+        service.createMember(mockOrgId, 'admin-1', {
+          email: 'temp@fwscrm.com',
+          password: 'Password123!',
+          confirmPassword: 'Password123!',
+          role: Role.OPERATOR,
+          allowedIp: '203.0.113.25',
+          accessType: AccessType.TEMPORARY,
+        }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should reject TEMPORARY access with a past expiration date', async () => {
+      await expect(
+        service.createMember(mockOrgId, 'admin-1', {
+          email: 'past@fwscrm.com',
+          password: 'Password123!',
+          confirmPassword: 'Password123!',
+          role: Role.OPERATOR,
+          allowedIp: '203.0.113.25',
+          accessType: AccessType.TEMPORARY,
+          accessExpiresAt: new Date(Date.now() - 1000 * 60 * 60).toISOString(),
+        }),
+      ).rejects.toThrow(BadRequestException);
+    });
   });
 
   describe('create', () => {
@@ -321,6 +399,77 @@ describe('UsersService', () => {
       await expect(
         service.updateStatus(mockOrgId, 'admin-id', false, 'admin-id'),
       ).rejects.toThrow(ConflictException);
+    });
+  });
+
+  describe('updateUserIp', () => {
+    it('should update user IP configuration and create audit log', async () => {
+      mockPrismaService.user.findFirst = jest.fn().mockResolvedValue({
+        id: 'user-2',
+        organizationId: mockOrgId,
+        allowedIp: '1.2.3.4',
+        accessType: AccessType.PERMANENT,
+        email: 'member@example.com',
+      });
+      mockPrismaService.user.update = jest.fn().mockResolvedValue({
+        id: 'user-2',
+        allowedIp: '203.0.113.100',
+        accessType: AccessType.PERMANENT,
+      });
+      mockPrismaService.auditLog = {
+        create: jest.fn().mockResolvedValue({}),
+      };
+
+      const result = await service.updateUserIp(
+        mockOrgId,
+        'user-2',
+        { allowedIp: '203.0.113.100' },
+        'admin-id',
+      );
+
+      expect(result.allowedIp).toBe('203.0.113.100');
+      expect(mockPrismaService.auditLog.create).toHaveBeenCalled();
+    });
+
+    it('should reject invalid IP format', async () => {
+      mockPrismaService.user.findFirst = jest.fn().mockResolvedValue({
+        id: 'user-2',
+        organizationId: mockOrgId,
+      });
+
+      await expect(
+        service.updateUserIp(
+          mockOrgId,
+          'user-2',
+          { allowedIp: 'invalid-ip' },
+          'admin-id',
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+  });
+
+  describe('adminResetPassword', () => {
+    it('should reset user password and create audit log', async () => {
+      mockPrismaService.user.findFirst = jest.fn().mockResolvedValue({
+        id: 'user-2',
+        organizationId: mockOrgId,
+        email: 'member@example.com',
+      });
+      mockPrismaService.user.update = jest.fn().mockResolvedValue({});
+      mockPrismaService.auditLog = {
+        create: jest.fn().mockResolvedValue({}),
+      };
+
+      const result = await service.adminResetPassword(
+        mockOrgId,
+        'user-2',
+        { password: 'NewSecurePassword123!' },
+        'admin-id',
+      );
+
+      expect(result.success).toBe(true);
+      expect(mockPrismaService.user.update).toHaveBeenCalled();
+      expect(mockPrismaService.auditLog.create).toHaveBeenCalled();
     });
   });
 });

@@ -20,6 +20,7 @@ export enum Permission {
   USER_EDIT_ROLE = 'user.edit_role',
   USER_DEACTIVATE = 'user.deactivate',
   USER_REACTIVATE = 'user.reactivate',
+  USER_DELETE = 'user.delete',
 
   // Analytics & Activity Permissions
   ANALYTICS_VIEW = 'analytics.view',

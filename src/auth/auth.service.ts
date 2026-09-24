@@ -15,6 +15,7 @@ import { LoginDto } from './dto/login.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { JwtPayload } from './interfaces/jwt-payload.interface';
 import { DEFAULT_LEAD_STATUSES } from '../leads/status.service';
+import { isIpMatch } from '../common/utils/ip-validator.util';
 
 @Injectable()
 export class AuthService {
@@ -110,7 +111,7 @@ export class AuthService {
     };
   }
 
-  async login(dto: LoginDto) {
+  async login(dto: LoginDto, clientIp?: string) {
     const user = await this.prisma.user.findFirst({
       where: {
         email: dto.email.toLowerCase(),
@@ -134,6 +135,27 @@ export class AuthService {
     );
     if (!isPasswordValid) {
       throw new UnauthorizedException('Invalid email or password');
+    }
+
+    // Role-based IP and Expiration Access Enforcement (Manager & Operator only)
+    if (user.role === Role.MANAGER || user.role === Role.OPERATOR) {
+      // 1. Expiration Check
+      if (user.accessExpiresAt && new Date() >= user.accessExpiresAt) {
+        this.logger.warn(
+          `Login denied: User ${user.email} (${user.role}) temporary access expired at ${user.accessExpiresAt.toISOString()}`,
+        );
+        throw new UnauthorizedException('Access denied.');
+      }
+
+      // 2. IP Restriction Check
+      if (user.allowedIp) {
+        if (!clientIp || !isIpMatch(clientIp, user.allowedIp)) {
+          this.logger.warn(
+            `Login denied: User ${user.email} (${user.role}) attempted login from unauthorized IP "${clientIp || 'unknown'}" (allowed: "${user.allowedIp}")`,
+          );
+          throw new UnauthorizedException('Access denied.');
+        }
+      }
     }
 
     const token = this.generateToken(user);
@@ -168,6 +190,14 @@ export class AuthService {
 
     if (!user || !user.isActive) {
       throw new UnauthorizedException('User not found or inactive');
+    }
+
+    if (
+      (user.role === Role.MANAGER || user.role === Role.OPERATOR) &&
+      user.accessExpiresAt &&
+      new Date() >= user.accessExpiresAt
+    ) {
+      throw new UnauthorizedException('Access denied.');
     }
 
     return {

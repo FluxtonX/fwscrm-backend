@@ -163,6 +163,117 @@ describe('AuthService', () => {
         }),
       ).rejects.toThrow(UnauthorizedException);
     });
+
+    describe('IP and Expiration Access Enforcement', () => {
+      const mockManager = {
+        ...mockUser,
+        id: 'user-manager',
+        email: 'manager@acme.com',
+        role: Role.MANAGER,
+        allowedIp: '198.51.100.1',
+        accessExpiresAt: null,
+      };
+
+      it('should allow MANAGER login when client IP matches allowedIp', async () => {
+        mockPrismaService.user.findFirst.mockResolvedValue(mockManager);
+        (bcrypt.compare as jest.Mock).mockResolvedValue(true);
+
+        const result = await service.login(
+          { email: 'manager@acme.com', password: 'correctPassword' },
+          '198.51.100.1',
+        );
+
+        expect(result.user.email).toBe('manager@acme.com');
+        expect(result.token).toBe('mock.jwt.token');
+      });
+
+      it('should reject MANAGER login when client IP does not match allowedIp', async () => {
+        mockPrismaService.user.findFirst.mockResolvedValue(mockManager);
+        (bcrypt.compare as jest.Mock).mockResolvedValue(true);
+
+        await expect(
+          service.login(
+            { email: 'manager@acme.com', password: 'correctPassword' },
+            '203.0.113.50',
+          ),
+        ).rejects.toThrow(new UnauthorizedException('Access denied.'));
+      });
+
+      it('should reject MANAGER login when client IP is undefined and allowedIp is set', async () => {
+        mockPrismaService.user.findFirst.mockResolvedValue(mockManager);
+        (bcrypt.compare as jest.Mock).mockResolvedValue(true);
+
+        await expect(
+          service.login({ email: 'manager@acme.com', password: 'correctPassword' }),
+        ).rejects.toThrow(new UnauthorizedException('Access denied.'));
+      });
+
+      it('should reject MANAGER login when access has expired', async () => {
+        const pastDate = new Date(Date.now() - 3600 * 1000);
+        mockPrismaService.user.findFirst.mockResolvedValue({
+          ...mockManager,
+          accessExpiresAt: pastDate,
+        });
+        (bcrypt.compare as jest.Mock).mockResolvedValue(true);
+
+        await expect(
+          service.login(
+            { email: 'manager@acme.com', password: 'correctPassword' },
+            '198.51.100.1',
+          ),
+        ).rejects.toThrow(new UnauthorizedException('Access denied.'));
+      });
+
+      it('should allow MANAGER login when accessExpiresAt is in the future and IP matches', async () => {
+        const futureDate = new Date(Date.now() + 3600 * 1000);
+        mockPrismaService.user.findFirst.mockResolvedValue({
+          ...mockManager,
+          accessExpiresAt: futureDate,
+        });
+        (bcrypt.compare as jest.Mock).mockResolvedValue(true);
+
+        const result = await service.login(
+          { email: 'manager@acme.com', password: 'correctPassword' },
+          '198.51.100.1',
+        );
+
+        expect(result.user.email).toBe('manager@acme.com');
+      });
+
+      it('should allow SUPER_ADMIN login regardless of IP or expiration fields', async () => {
+        mockPrismaService.user.findFirst.mockResolvedValue({
+          ...mockUser,
+          role: Role.SUPER_ADMIN,
+          allowedIp: '198.51.100.1',
+          accessExpiresAt: new Date(Date.now() - 3600 * 1000),
+        });
+        (bcrypt.compare as jest.Mock).mockResolvedValue(true);
+
+        const result = await service.login(
+          { email: 'admin@acme.com', password: 'correctPassword' },
+          '203.0.113.99', // completely different IP
+        );
+
+        expect(result.user.email).toBe('admin@acme.com');
+        expect(result.token).toBe('mock.jwt.token');
+      });
+
+      it('should allow user without allowedIp to login from any IP', async () => {
+        mockPrismaService.user.findFirst.mockResolvedValue({
+          ...mockManager,
+          allowedIp: null,
+          accessExpiresAt: null,
+        });
+        (bcrypt.compare as jest.Mock).mockResolvedValue(true);
+
+        const result = await service.login(
+          { email: 'manager@acme.com', password: 'correctPassword' },
+          '192.168.1.5',
+        );
+
+        expect(result.user.email).toBe('manager@acme.com');
+      });
+    });
   });
 
   describe('resetPassword', () => {

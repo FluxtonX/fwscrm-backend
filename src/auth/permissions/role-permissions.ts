@@ -4,7 +4,9 @@ import { Permission } from './permissions.enum';
 export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
   [Role.SUPER_ADMIN]: Object.values(Permission),
 
-  [Role.ADMIN]: Object.values(Permission),
+  [Role.ADMIN]: Object.values(Permission).filter(
+    (p) => p !== Permission.USER_DELETE,
+  ),
 
   [Role.MANAGER]: [
     // Lead operations (sees all leads, creates, edits, assigns owner, imports, exports)

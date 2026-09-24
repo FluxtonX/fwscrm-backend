@@ -13,6 +13,10 @@ async function bootstrap() {
     process.env.COOKIE_SECRET || 'dev_cookie_secret_fallback';
   app.use(cookieParser(cookieSecret));
 
+  // Configure trusted reverse proxy (Render, Cloudflare, etc.)
+  const expressApp = app.getHttpAdapter().getInstance();
+  expressApp.set('trust proxy', 1);
+
   // Configure CORS with production resilience
   const rawFrontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
   const configuredOrigins = rawFrontendUrl

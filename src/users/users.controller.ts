@@ -3,6 +3,7 @@ import {
   Get,
   Post,
   Patch,
+  Delete,
   Param,
   Body,
   UseGuards,
@@ -22,6 +23,8 @@ import { Role } from '@prisma/client';
 import { CreateMemberDto } from './dto/create-member.dto';
 import { UpdateUserRoleDto } from './dto/update-role.dto';
 import { UpdateUserStatusDto } from './dto/update-status.dto';
+import { UpdateUserIpDto } from './dto/update-user-ip.dto';
+import { AdminResetPasswordDto } from './dto/admin-reset-password.dto';
 
 @Controller('users')
 @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
@@ -74,5 +77,38 @@ export class UsersController {
       dto.isActive,
       user.id,
     );
+  }
+
+  @Delete(':id')
+  @HttpCode(HttpStatus.OK)
+  @Roles(Role.SUPER_ADMIN)
+  @RequirePermissions(Permission.USER_DELETE)
+  deleteMember(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+  ) {
+    return this.usersService.deleteMember(user.organizationId, id, user.id);
+  }
+
+  @Patch(':id/ip')
+  @HttpCode(HttpStatus.OK)
+  @Roles(Role.SUPER_ADMIN)
+  updateUserIp(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @Body() dto: UpdateUserIpDto,
+  ) {
+    return this.usersService.updateUserIp(user.organizationId, id, dto, user.id);
+  }
+
+  @Patch(':id/password')
+  @HttpCode(HttpStatus.OK)
+  @Roles(Role.SUPER_ADMIN)
+  adminResetPassword(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @Body() dto: AdminResetPasswordDto,
+  ) {
+    return this.usersService.adminResetPassword(user.organizationId, id, dto, user.id);
   }
 }
