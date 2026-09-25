@@ -25,6 +25,7 @@ import {
   BulkUpdateStatusDto,
   BulkDeleteDto,
   BulkTagDto,
+  BulkEditDto,
 } from './dto/bulk-action.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../auth/guards/permissions.guard';
@@ -186,5 +187,20 @@ export class LeadsController {
       dto.tag,
       dto.action,
     );
+  }
+
+  @Post('bulk/edit')
+  @HttpCode(HttpStatus.OK)
+  @RequirePermissions(Permission.LEAD_EDIT)
+  bulkEdit(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: BulkEditDto,
+  ) {
+    return this.leadsService.bulkEdit(user.organizationId, dto.leadIds, {
+      statusId: dto.statusId,
+      ownerId: dto.ownerId,
+      tag: dto.tag,
+      tagAction: dto.tagAction,
+    });
   }
 }

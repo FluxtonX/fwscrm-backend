@@ -450,6 +450,11 @@ export class LeadsService {
       data: { statusId },
     });
 
+    const statusRecord = await this.prisma.leadStatus.findFirst({
+      where: { id: statusId, organizationId },
+    });
+    const statusName = statusRecord ? statusRecord.name : statusId;
+
     // Create bulk activity logs
     if (leadIds.length > 0) {
       await this.prisma.leadActivity.createMany({
@@ -457,13 +462,17 @@ export class LeadsService {
           organizationId,
           leadId,
           type: ActivityType.STATUS_CHANGED,
-          description: `Status changed in bulk operation`,
+          description: `Status changed to "${statusName}"`,
+          metadata: {
+            toStatusId: statusId,
+            toStatusName: statusName,
+          },
         })),
       });
     }
 
     this.logger.log(
-      `Bulk updated status to ${statusId} for ${result.count} leads in org ${organizationId}`,
+      `Bulk updated status to ${statusName} (${statusId}) for ${result.count} leads in org ${organizationId}`,
     );
     return { count: result.count };
   }
@@ -553,6 +562,109 @@ export class LeadsService {
       `Bulk tagged ${updatedIds.length} leads in org ${organizationId} with tag "${cleanTag}" (${action})`,
     );
     return { count: updatedIds.length };
+  }
+
+  async bulkEdit(
+    organizationId: string,
+    leadIds: string[],
+    data: {
+      statusId?: string;
+      ownerId?: string;
+      tag?: string;
+      tagAction?: 'ADD' | 'REMOVE' | 'SET';
+    },
+  ): Promise<{ count: number; updatedFields: string[] }> {
+    if (!leadIds || leadIds.length === 0) {
+      return { count: 0, updatedFields: [] };
+    }
+
+    const updateData: { statusId?: string; ownerId?: string | null } = {};
+    const activitiesToCreate: {
+      organizationId: string;
+      leadId: string;
+      type: ActivityType;
+      description: string;
+      metadata?: any;
+    }[] = [];
+    const updatedFields: string[] = [];
+
+    // 1. Status update
+    if (data.statusId && data.statusId !== 'no_change') {
+      const statusRecord = await this.prisma.leadStatus.findFirst({
+        where: { id: data.statusId, organizationId },
+      });
+      const statusName = statusRecord ? statusRecord.name : data.statusId;
+
+      updateData.statusId = data.statusId;
+      updatedFields.push('status');
+      for (const leadId of leadIds) {
+        activitiesToCreate.push({
+          organizationId,
+          leadId,
+          type: ActivityType.STATUS_CHANGED,
+          description: `Status changed to "${statusName}"`,
+          metadata: {
+            toStatusId: data.statusId,
+            toStatusName: statusName,
+          },
+        });
+      }
+    }
+
+    // 2. Owner update
+    if (data.ownerId && data.ownerId !== 'no_change') {
+      const targetOwner =
+        data.ownerId === 'unassigned' || data.ownerId === 'none'
+          ? null
+          : data.ownerId;
+      updateData.ownerId = targetOwner;
+      updatedFields.push('owner');
+      for (const leadId of leadIds) {
+        activitiesToCreate.push({
+          organizationId,
+          leadId,
+          type: ActivityType.OWNER_ASSIGNED,
+          description: targetOwner
+            ? `Assigned in bulk edit`
+            : `Unassigned in bulk edit`,
+        });
+      }
+    }
+
+    let affectedCount = leadIds.length;
+
+    // Apply lead table updates
+    if (Object.keys(updateData).length > 0) {
+      const result = await this.prisma.lead.updateMany({
+        where: {
+          id: { in: leadIds },
+          organizationId,
+        },
+        data: updateData,
+      });
+      affectedCount = result.count;
+    }
+
+    // 3. Tag update
+    if (data.tag && data.tag.trim()) {
+      const cleanTag = data.tag.trim();
+      const action = data.tagAction || 'ADD';
+      await this.bulkTag(organizationId, leadIds, cleanTag, action);
+      updatedFields.push('tag');
+    }
+
+    // Create activity logs
+    if (activitiesToCreate.length > 0) {
+      await this.prisma.leadActivity.createMany({
+        data: activitiesToCreate,
+      });
+    }
+
+    this.logger.log(
+      `Bulk edited ${affectedCount} leads in org ${organizationId}: updated [${updatedFields.join(', ')}]`,
+    );
+
+    return { count: affectedCount, updatedFields };
   }
 
 

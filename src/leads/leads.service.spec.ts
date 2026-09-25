@@ -39,6 +39,9 @@ describe('LeadsService', () => {
     leadSource: {
       findFirst: jest.fn(),
     },
+    leadStatus: {
+      findFirst: jest.fn(),
+    },
     leadActivity: {
       create: jest.fn(),
       createMany: jest.fn(),
@@ -212,6 +215,33 @@ describe('LeadsService', () => {
         where: { id: 'lead-1' },
         data: { tag1: 'Hot Lead' },
       });
+    });
+  });
+
+  describe('bulkEdit', () => {
+    it('should simultaneously update status and owner and record activity logs', async () => {
+      mockPrismaService.lead.updateMany.mockResolvedValue({ count: 2 });
+      mockPrismaService.leadStatus.findFirst.mockResolvedValue({ id: 'status-won', name: 'Won' });
+      mockPrismaService.leadActivity.createMany.mockResolvedValue({});
+
+      const result = await service.bulkEdit(mockOrgId, ['lead-1', 'lead-2'], {
+        statusId: 'status-won',
+        ownerId: 'user-alex',
+      });
+
+      expect(result.count).toBe(2);
+      expect(result.updatedFields).toEqual(['status', 'owner']);
+      expect(mockPrismaService.lead.updateMany).toHaveBeenCalledWith({
+        where: {
+          id: { in: ['lead-1', 'lead-2'] },
+          organizationId: mockOrgId,
+        },
+        data: {
+          statusId: 'status-won',
+          ownerId: 'user-alex',
+        },
+      });
+      expect(mockPrismaService.leadActivity.createMany).toHaveBeenCalled();
     });
   });
 });

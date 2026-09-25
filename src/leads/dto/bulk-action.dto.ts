@@ -1,4 +1,4 @@
-import { IsArray, IsString, IsNotEmpty, ArrayNotEmpty } from 'class-validator';
+import { IsArray, IsString, IsNotEmpty, ArrayNotEmpty, IsOptional } from 'class-validator';
 
 export class BulkAssignDto {
   @IsArray()
@@ -42,5 +42,28 @@ export class BulkTagDto {
   @IsString()
   @IsNotEmpty()
   action!: 'ADD' | 'REMOVE' | 'SET';
+}
+
+export class BulkEditDto {
+  @IsArray()
+  @ArrayNotEmpty()
+  @IsString({ each: true })
+  leadIds!: string[];
+
+  @IsOptional()
+  @IsString()
+  statusId?: string;
+
+  @IsOptional()
+  @IsString()
+  ownerId?: string;
+
+  @IsOptional()
+  @IsString()
+  tag?: string;
+
+  @IsOptional()
+  @IsString()
+  tagAction?: 'ADD' | 'REMOVE' | 'SET';
 }
 
