@@ -96,7 +96,24 @@ export interface DashboardPayload {
 
 @Injectable()
 export class AnalyticsService {
+  private readonly dashboardCache = new Map<
+    string,
+    { payload: DashboardPayload; expiresAt: number }
+  >();
+
   constructor(private readonly prisma: PrismaService) {}
+
+  clearCache(organizationId?: string): void {
+    if (!organizationId) {
+      this.dashboardCache.clear();
+      return;
+    }
+    for (const key of this.dashboardCache.keys()) {
+      if (key.startsWith(`${organizationId}:`)) {
+        this.dashboardCache.delete(key);
+      }
+    }
+  }
 
   private getDateRange(timeframe: string): {
     start: Date;
@@ -139,6 +156,12 @@ export class AnalyticsService {
     organizationId: string,
     timeframe = '30d',
   ): Promise<DashboardPayload> {
+    const cacheKey = `${organizationId}:${timeframe}`;
+    const cached = this.dashboardCache.get(cacheKey);
+    if (cached && Date.now() < cached.expiresAt) {
+      return cached.payload;
+    }
+
     const { start, previousStart, days } = this.getDateRange(timeframe);
 
     const now = new Date();
@@ -548,7 +571,7 @@ export class AnalyticsService {
       lead: a.lead,
     }));
 
-    return {
+    const payload: DashboardPayload = {
       overview: {
         totalLeads,
         activeLeads,
@@ -579,6 +602,21 @@ export class AnalyticsService {
       recentActivities,
       insights,
     };
+
+    // Store in-memory cache for 60 seconds to eliminate post-login database hammering
+    if (this.dashboardCache.size > 50) {
+      const nowMs = Date.now();
+      for (const [k, v] of this.dashboardCache.entries()) {
+        if (nowMs >= v.expiresAt) this.dashboardCache.delete(k);
+      }
+    }
+
+    this.dashboardCache.set(cacheKey, {
+      payload,
+      expiresAt: Date.now() + 60 * 1000, // 60s TTL
+    });
+
+    return payload;
   }
 
   // Preserve previous simple overview methods for backwards compatibility

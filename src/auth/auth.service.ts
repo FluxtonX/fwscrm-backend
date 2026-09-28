@@ -20,7 +20,7 @@ import { isIpMatch } from '../common/utils/ip-validator.util';
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
-  private readonly saltRounds = 12;
+  private readonly saltRounds = 10;
 
   constructor(
     private readonly prisma: PrismaService,
