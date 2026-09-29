@@ -43,12 +43,44 @@ export class LeadsService {
     }
 
     if (query.status) {
-      andConditions.push({
-        OR: [
-          { statusId: query.status },
-          { status: { name: { equals: query.status, mode: 'insensitive' } } },
-        ],
-      });
+      const statusList = query.status.split(',').map((s) => s.trim()).filter(Boolean);
+      if (statusList.length === 1) {
+        andConditions.push({
+          OR: [
+            { statusId: statusList[0] },
+            { status: { name: { equals: statusList[0], mode: 'insensitive' } } },
+          ],
+        });
+      } else if (statusList.length > 1) {
+        andConditions.push({
+          OR: [
+            { statusId: { in: statusList } },
+            { status: { name: { in: statusList, mode: 'insensitive' } } },
+          ],
+        });
+      }
+    }
+
+    if (query.dateFrom || query.dateTo) {
+      const createdAtFilter: Prisma.DateTimeFilter = {};
+      if (query.dateFrom) {
+        const fromDate = new Date(query.dateFrom);
+        if (!isNaN(fromDate.getTime())) {
+          createdAtFilter.gte = fromDate;
+        }
+      }
+      if (query.dateTo) {
+        const toDate = new Date(query.dateTo);
+        if (!isNaN(toDate.getTime())) {
+          if (query.dateTo.length <= 10) {
+            toDate.setHours(23, 59, 59, 999);
+          }
+          createdAtFilter.lte = toDate;
+        }
+      }
+      if (createdAtFilter.gte || createdAtFilter.lte) {
+        andConditions.push({ createdAt: createdAtFilter });
+      }
     }
 
     if (query.country) {
@@ -683,40 +715,106 @@ export class LeadsService {
     query: QueryLeadsDto,
     specificLeadIds?: string[],
   ): Promise<string> {
-    const where: Prisma.LeadWhereInput = {
-      organizationId,
-    };
+    const andConditions: Prisma.LeadWhereInput[] = [
+      { organizationId },
+    ];
 
     if (specificLeadIds && specificLeadIds.length > 0) {
-      where.id = { in: specificLeadIds };
+      andConditions.push({ id: { in: specificLeadIds } });
     } else {
       if (query.search && query.search.trim()) {
         const s = query.search.trim();
-        where.OR = [
-          { firstName: { contains: s, mode: 'insensitive' } },
-          { lastName: { contains: s, mode: 'insensitive' } },
-          { email: { contains: s, mode: 'insensitive' } },
-          { phone: { contains: s, mode: 'insensitive' } },
-        ];
+        andConditions.push({
+          OR: [
+            { firstName: { contains: s, mode: 'insensitive' } },
+            { lastName: { contains: s, mode: 'insensitive' } },
+            { email: { contains: s, mode: 'insensitive' } },
+            { phone: { contains: s, mode: 'insensitive' } },
+          ],
+        });
       }
+
       if (query.status) {
-        where.statusId = query.status;
+        const statusList = query.status.split(',').map((s) => s.trim()).filter(Boolean);
+        if (statusList.length === 1) {
+          andConditions.push({
+            OR: [
+              { statusId: statusList[0] },
+              { status: { name: { equals: statusList[0], mode: 'insensitive' } } },
+            ],
+          });
+        } else if (statusList.length > 1) {
+          andConditions.push({
+            OR: [
+              { statusId: { in: statusList } },
+              { status: { name: { in: statusList, mode: 'insensitive' } } },
+            ],
+          });
+        }
       }
+
       if (query.country) {
-        where.countryName = { contains: query.country, mode: 'insensitive' };
+        andConditions.push({
+          countryName: { contains: query.country, mode: 'insensitive' },
+        });
       }
+
       if (query.leadSource) {
-        where.sourceName = { contains: query.leadSource, mode: 'insensitive' };
+        andConditions.push({
+          sourceName: { contains: query.leadSource, mode: 'insensitive' },
+        });
       }
+
       if (query.ownerId) {
-        where.ownerId = query.ownerId;
+        if (query.ownerId === 'unassigned') {
+          andConditions.push({ ownerId: null });
+        } else {
+          andConditions.push({ ownerId: query.ownerId });
+        }
+      }
+
+      if (query.referrer) {
+        andConditions.push({
+          referrer: { contains: query.referrer, mode: 'insensitive' },
+        });
+      }
+
+      if (query.tag1) {
+        andConditions.push({
+          tag1: { contains: query.tag1, mode: 'insensitive' },
+        });
+      }
+
+      if (query.dateFrom || query.dateTo) {
+        const createdAtFilter: Prisma.DateTimeFilter = {};
+        if (query.dateFrom) {
+          const fromDate = new Date(query.dateFrom);
+          if (!isNaN(fromDate.getTime())) {
+            createdAtFilter.gte = fromDate;
+          }
+        }
+        if (query.dateTo) {
+          const toDate = new Date(query.dateTo);
+          if (!isNaN(toDate.getTime())) {
+            if (query.dateTo.length <= 10) {
+              toDate.setHours(23, 59, 59, 999);
+            }
+            createdAtFilter.lte = toDate;
+          }
+        }
+        if (createdAtFilter.gte || createdAtFilter.lte) {
+          andConditions.push({ createdAt: createdAtFilter });
+        }
       }
     }
+
+    const where: Prisma.LeadWhereInput =
+      andConditions.length === 1 ? andConditions[0] : { AND: andConditions };
 
     const leads = await this.prisma.lead.findMany({
       where,
       orderBy: { createdAt: 'desc' },
-      take: 10000,
+      take: 50000,
       include: {
         status: { select: { name: true } },
         source: { select: { name: true } },
@@ -725,35 +823,37 @@ export class LeadsService {
       },
     });
 
-    const headers = [
-      'First Name',
-      'Last Name',
-      'Email',
-      'Phone',
-      'Country',
-      'Lead Source',
-      'referrer',
-      'tag1',
-      'Status',
-      'Owner',
-      'Created At',
+    const allColumns: { id: string; label: string; getValue: (l: any) => string }[] = [
+      { id: 'firstName', label: 'First Name', getValue: (l) => l.firstName || '' },
+      { id: 'lastName', label: 'Last Name', getValue: (l) => l.lastName || '' },
+      { id: 'email', label: 'Email', getValue: (l) => l.email || '' },
+      { id: 'phone', label: 'Phone', getValue: (l) => l.phone || '' },
+      { id: 'country', label: 'Country', getValue: (l) => l.countryName || l.country?.name || '' },
+      { id: 'leadSource', label: 'Lead Source', getValue: (l) => l.sourceName || l.source?.name || '' },
+      { id: 'referrer', label: 'Referrer', getValue: (l) => l.referrer || '' },
+      { id: 'tag1', label: 'Tags', getValue: (l) => l.tag1 || '' },
+      { id: 'status', label: 'Status', getValue: (l) => l.status?.name || '' },
+      { id: 'owner', label: 'Owner', getValue: (l) => (l.owner ? `${l.owner.firstName} ${l.owner.lastName}`.trim() : '') },
+      { id: 'createdAt', label: 'Created At', getValue: (l) => (l.createdAt ? new Date(l.createdAt).toISOString() : '') },
     ];
 
-    const rows = leads.map((l) => [
-      this.sanitizeCsvField(l.firstName),
-      this.sanitizeCsvField(l.lastName),
-      this.sanitizeCsvField(l.email),
-      this.sanitizeCsvField(l.phone || ''),
-      this.sanitizeCsvField(l.countryName || l.country?.name || ''),
-      this.sanitizeCsvField(l.sourceName || l.source?.name || ''),
-      this.sanitizeCsvField(l.referrer || ''),
-      this.sanitizeCsvField(l.tag1 || ''),
-      this.sanitizeCsvField(l.status?.name || ''),
-      this.sanitizeCsvField(
-        l.owner ? `${l.owner.firstName} ${l.owner.lastName}` : '',
-      ),
-      this.sanitizeCsvField(l.createdAt.toISOString()),
-    ]);
+    let selectedColumns = allColumns;
+    if (query.columns && query.columns.trim()) {
+      const requestedIds = query.columns.split(',').map((c) => c.trim().toLowerCase());
+      const filtered = allColumns.filter(
+        (col) =>
+          requestedIds.includes(col.id.toLowerCase()) ||
+          requestedIds.includes(col.label.toLowerCase()),
+      );
+      if (filtered.length > 0) {
+        selectedColumns = filtered;
+      }
+    }
+
+    const headers = selectedColumns.map((col) => col.label);
+    const rows = leads.map((l) =>
+      selectedColumns.map((col) => this.sanitizeCsvField(col.getValue(l))),
+    );
 
     const csvContent = [
       headers.map((h) => `"${h}"`).join(','),
@@ -761,6 +861,6 @@ export class LeadsService {
     ].join('\r\n');
 
     this.logger.log(`Exported ${leads.length} leads for org ${organizationId}`);
-    return csvContent;
+    return '\uFEFF' + csvContent;
   }
 }

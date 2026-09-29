@@ -29,5 +29,17 @@ export class QueryLeadsDto extends PaginationQueryDto {
   @IsOptional()
   @IsString()
   tag1?: string;
+
+  @IsOptional()
+  @IsString()
+  dateFrom?: string;
+
+  @IsOptional()
+  @IsString()
+  dateTo?: string;
+
+  @IsOptional()
+  @IsString()
+  columns?: string;
 }
 
