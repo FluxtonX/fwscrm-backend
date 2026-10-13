@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { AnalyticsService } from './analytics.service';
 import { PrismaService } from '../database/prisma.service';
+import { Role } from '@prisma/client';
 
 describe('AnalyticsService', () => {
   let service: AnalyticsService;
@@ -144,6 +145,33 @@ describe('AnalyticsService', () => {
       expect(dashboard.actionItems.unassignedCount).toBe(10);
       expect(dashboard.actionItems.uncontactedCount).toBe(8);
       expect(dashboard.insights.length).toBeGreaterThan(0);
+    });
+
+    it('should omit team performance and bypass user findMany for OPERATOR', async () => {
+      mockPrisma.lead.count
+        .mockResolvedValueOnce(50)
+        .mockResolvedValueOnce(10)
+        .mockResolvedValueOnce(5)
+        .mockResolvedValueOnce(5)
+        .mockResolvedValueOnce(2)
+        .mockResolvedValueOnce(1)
+        .mockResolvedValueOnce(1);
+
+      mockPrisma.import.count.mockResolvedValue(1);
+      mockPrisma.import.aggregate.mockResolvedValue({
+        _sum: { duplicateRows: 2 },
+      });
+
+      mockPrisma.lead.groupBy.mockResolvedValue([]);
+      mockPrisma.leadStatus.findMany.mockResolvedValue([]);
+      mockPrisma.lead.findMany.mockResolvedValue([]);
+      mockPrisma.leadActivity.findMany.mockResolvedValue([]);
+
+      const dashboard = await service.getDashboard('org-1', '30d', Role.OPERATOR);
+
+      expect(dashboard).toBeDefined();
+      expect(dashboard.teamPerformance).toEqual([]);
+      expect(mockPrisma.user.findMany).not.toHaveBeenCalled();
     });
   });
 

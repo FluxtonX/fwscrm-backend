@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service';
+import { ActivityType, Role } from '@prisma/client';
 
 export interface DashboardPayload {
   overview: {
@@ -155,8 +156,12 @@ export class AnalyticsService {
   async getDashboard(
     organizationId: string,
     timeframe = '30d',
+    role?: Role,
   ): Promise<DashboardPayload> {
-    const cacheKey = `${organizationId}:${timeframe}`;
+    const isOperator = role === Role.OPERATOR;
+    const cacheKey = isOperator
+      ? `${organizationId}:${timeframe}:OPERATOR`
+      : `${organizationId}:${timeframe}`;
     const cached = this.dashboardCache.get(cacheKey);
     if (cached && Date.now() < cached.expiresAt) {
       return cached.payload;
@@ -258,22 +263,24 @@ export class AnalyticsService {
         _count: { id: true },
       }),
 
-      // 11. Team members in org with lead relations
-      this.prisma.user.findMany({
-        where: { organizationId, isActive: true },
-        select: {
-          id: true,
-          firstName: true,
-          lastName: true,
-          email: true,
-          ownedLeads: {
+      // 11. Team members in org with lead relations (bypassed for Operator to prevent data leakage and DB load)
+      isOperator
+        ? Promise.resolve([])
+        : this.prisma.user.findMany({
+            where: { organizationId, isActive: true },
             select: {
               id: true,
-              status: { select: { name: true } },
+              firstName: true,
+              lastName: true,
+              email: true,
+              ownedLeads: {
+                select: {
+                  id: true,
+                  status: { select: { name: true } },
+                },
+              },
             },
-          },
-        },
-      }),
+          }),
 
       // 12. Unassigned leads
       this.prisma.lead.count({
@@ -312,9 +319,23 @@ export class AnalyticsService {
         },
       }),
 
-      // 16. Recent activities (latest 8)
+      // 16. Recent activities (latest 8) - filtered for Operator
       this.prisma.leadActivity.findMany({
-        where: { organizationId },
+        where: {
+          organizationId,
+          ...(isOperator
+            ? {
+                type: {
+                  in: [
+                    ActivityType.CREATED,
+                    ActivityType.STATUS_CHANGED,
+                    ActivityType.NOTE_ADDED,
+                    ActivityType.UPDATED,
+                  ],
+                },
+              }
+            : {}),
+        },
         orderBy: { createdAt: 'desc' },
         take: 8,
         include: {
@@ -440,29 +461,31 @@ export class AnalyticsService {
       return { date, label, count };
     });
 
-    // Team performance
-    const teamPerformance = users
-      .map((u) => {
-        const assignedCount = u.ownedLeads.length;
-        const wonCount = u.ownedLeads.filter(
-          (l) =>
-            l.status?.name?.toLowerCase() === 'won' ||
-            l.status?.name?.toLowerCase() === 'customer',
-        ).length;
-        const rate =
-          assignedCount > 0
-            ? Math.round((wonCount / assignedCount) * 1000) / 10
-            : 0;
-        return {
-          userId: u.id,
-          name: `${u.firstName} ${u.lastName}`,
-          email: u.email,
-          assignedCount,
-          wonCount,
-          conversionRate: rate,
-        };
-      })
-      .sort((a, b) => b.assignedCount - a.assignedCount);
+    // Team performance (omitted for Operator)
+    const teamPerformance = isOperator
+      ? []
+      : users
+          .map((u) => {
+            const assignedCount = u.ownedLeads.length;
+            const wonCount = u.ownedLeads.filter(
+              (l) =>
+                l.status?.name?.toLowerCase() === 'won' ||
+                l.status?.name?.toLowerCase() === 'customer',
+            ).length;
+            const rate =
+              assignedCount > 0
+                ? Math.round((wonCount / assignedCount) * 1000) / 10
+                : 0;
+            return {
+              userId: u.id,
+              name: `${u.firstName} ${u.lastName}`,
+              email: u.email,
+              assignedCount,
+              wonCount,
+              conversionRate: rate,
+            };
+          })
+          .sort((a, b) => b.assignedCount - a.assignedCount);
 
     // Action items
     const actionItemsList: DashboardPayload['actionItems']['items'] = [];

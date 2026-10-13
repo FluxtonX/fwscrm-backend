@@ -13,7 +13,14 @@ export class ActivitiesController {
   constructor(private readonly activitiesService: ActivitiesService) {}
 
   @Get('leads/:leadId/activities')
-  @Roles(Role.SUPER_ADMIN, Role.ADMIN, Role.MANAGER, Role.AGENT, Role.VIEWER)
+  @Roles(
+    Role.SUPER_ADMIN,
+    Role.ADMIN,
+    Role.MANAGER,
+    Role.AGENT,
+    Role.VIEWER,
+    Role.OPERATOR,
+  )
   getLeadActivities(
     @CurrentUser() user: AuthenticatedUser,
     @Param('leadId') leadId: string,
@@ -21,11 +28,19 @@ export class ActivitiesController {
     return this.activitiesService.getLeadActivities(
       user.organizationId,
       leadId,
+      user.role,
     );
   }
 
   @Get('activities/recent')
-  @Roles(Role.SUPER_ADMIN, Role.ADMIN, Role.MANAGER, Role.AGENT, Role.VIEWER)
+  @Roles(
+    Role.SUPER_ADMIN,
+    Role.ADMIN,
+    Role.MANAGER,
+    Role.AGENT,
+    Role.VIEWER,
+    Role.OPERATOR,
+  )
   getRecentActivities(
     @CurrentUser() user: AuthenticatedUser,
     @Query('limit') limit?: number,
@@ -33,6 +48,7 @@ export class ActivitiesController {
     return this.activitiesService.getOrganizationActivities(
       user.organizationId,
       limit ? Number(limit) : 10,
+      user.role,
     );
   }
 }

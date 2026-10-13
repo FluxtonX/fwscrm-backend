@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service';
-import { ActivityType, LeadActivity, Prisma } from '@prisma/client';
+import { ActivityType, LeadActivity, Prisma, Role } from '@prisma/client';
 
 @Injectable()
 export class ActivitiesService {
@@ -29,6 +29,7 @@ export class ActivitiesService {
   async getLeadActivities(
     organizationId: string,
     leadId: string,
+    role?: Role,
   ): Promise<LeadActivity[]> {
     // Verify lead belongs to organization
     const lead = await this.prisma.lead.findFirst({
@@ -39,11 +40,24 @@ export class ActivitiesService {
       throw new NotFoundException(`Lead with ID "${leadId}" not found`);
     }
 
+    const whereClause: Prisma.LeadActivityWhereInput = {
+      organizationId,
+      leadId,
+    };
+
+    if (role === Role.OPERATOR) {
+      whereClause.type = {
+        in: [
+          ActivityType.CREATED,
+          ActivityType.STATUS_CHANGED,
+          ActivityType.NOTE_ADDED,
+          ActivityType.UPDATED,
+        ],
+      };
+    }
+
     return this.prisma.leadActivity.findMany({
-      where: {
-        organizationId,
-        leadId,
-      },
+      where: whereClause,
       include: {
         user: {
           select: { id: true, firstName: true, lastName: true, email: true, role: true },
@@ -57,9 +71,25 @@ export class ActivitiesService {
   async getOrganizationActivities(
     organizationId: string,
     limit = 10,
+    role?: Role,
   ): Promise<LeadActivity[]> {
+    const whereClause: Prisma.LeadActivityWhereInput = {
+      organizationId,
+    };
+
+    if (role === Role.OPERATOR) {
+      whereClause.type = {
+        in: [
+          ActivityType.CREATED,
+          ActivityType.STATUS_CHANGED,
+          ActivityType.NOTE_ADDED,
+          ActivityType.UPDATED,
+        ],
+      };
+    }
+
     return this.prisma.leadActivity.findMany({
-      where: { organizationId },
+      where: whereClause,
       include: {
         user: {
           select: { id: true, firstName: true, lastName: true, email: true, role: true },

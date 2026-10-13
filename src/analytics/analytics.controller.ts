@@ -13,7 +13,14 @@ export class AnalyticsController {
   constructor(private readonly analyticsService: AnalyticsService) {}
 
   @Get('dashboard')
-  @Roles(Role.SUPER_ADMIN, Role.ADMIN, Role.MANAGER, Role.AGENT, Role.VIEWER)
+  @Roles(
+    Role.SUPER_ADMIN,
+    Role.ADMIN,
+    Role.MANAGER,
+    Role.OPERATOR,
+    Role.AGENT,
+    Role.VIEWER,
+  )
   getDashboard(
     @CurrentUser() user: AuthenticatedUser,
     @Query('timeframe') timeframe?: string,
@@ -21,6 +28,7 @@ export class AnalyticsController {
     return this.analyticsService.getDashboard(
       user.organizationId,
       timeframe || '30d',
+      user.role,
     );
   }
 
