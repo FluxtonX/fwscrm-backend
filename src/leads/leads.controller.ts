@@ -27,6 +27,7 @@ import {
   BulkTagDto,
   BulkEditDto,
 } from './dto/bulk-action.dto';
+import { TransferLeadsDto } from './dto/transfer-leads.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { RequirePermissions } from '../auth/decorators/require-permissions.decorator';
@@ -68,7 +69,7 @@ export class LeadsController {
     @CurrentUser() user: AuthenticatedUser,
     @Query() query: QueryLeadsDto,
   ) {
-    return this.leadsService.findAll(user.organizationId, query, user.id);
+    return this.leadsService.findAll(user.organizationId, query, user.id, user);
   }
 
 
@@ -82,6 +83,8 @@ export class LeadsController {
     const csv = await this.leadsService.exportLeadsToCsv(
       user.organizationId,
       query,
+      undefined,
+      user,
     );
     const filename = `leads_export_${new Date().toISOString().slice(0, 10)}.csv`;
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
@@ -101,6 +104,7 @@ export class LeadsController {
       user.organizationId,
       {},
       body.leadIds,
+      user,
     );
     const filename = `leads_export_selected_${new Date().toISOString().slice(0, 10)}.csv`;
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
@@ -111,7 +115,7 @@ export class LeadsController {
   @Get(':id')
   @RequirePermissions(Permission.LEAD_VIEW)
   findById(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
-    return this.leadsService.findById(user.organizationId, id);
+    return this.leadsService.findById(user.organizationId, id, user);
   }
 
   @Post()
@@ -127,7 +131,7 @@ export class LeadsController {
     @Param('id') id: string,
     @Body() dto: UpdateLeadDto,
   ) {
-    return this.leadsService.update(user.organizationId, id, dto, user.id);
+    return this.leadsService.update(user.organizationId, id, dto, user.id, user);
   }
 
   @Delete(':id')
@@ -147,7 +151,27 @@ export class LeadsController {
       user.organizationId,
       dto.leadIds,
       dto.ownerId,
+      user,
     );
+  }
+
+  @Get('transfer/eligible-users')
+  @RequirePermissions(Permission.LEAD_ASSIGN_OWNER)
+  getEligibleTransferUsers(@CurrentUser() user: AuthenticatedUser) {
+    return this.leadsService.getEligibleTransferUsers(
+      user.organizationId,
+      user,
+    );
+  }
+
+  @Post('transfer')
+  @HttpCode(HttpStatus.OK)
+  @RequirePermissions(Permission.LEAD_ASSIGN_OWNER)
+  transferLeads(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: TransferLeadsDto,
+  ) {
+    return this.leadsService.transferLeads(user.organizationId, dto, user);
   }
 
   @Post('bulk/status')

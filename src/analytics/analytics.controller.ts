@@ -29,29 +29,58 @@ export class AnalyticsController {
       user.organizationId,
       timeframe || '30d',
       user.role,
+      user,
     );
   }
 
   @Get('overview')
-  @Roles(Role.SUPER_ADMIN, Role.ADMIN, Role.MANAGER, Role.AGENT, Role.VIEWER)
+  @Roles(
+    Role.SUPER_ADMIN,
+    Role.ADMIN,
+    Role.MANAGER,
+    Role.OPERATOR,
+    Role.AGENT,
+    Role.VIEWER,
+  )
   getOverview(@CurrentUser() user: AuthenticatedUser) {
-    return this.analyticsService.getOverview(user.organizationId);
+    return this.analyticsService.getOverview(user.organizationId, user);
   }
 
   @Get('status-distribution')
-  @Roles(Role.SUPER_ADMIN, Role.ADMIN, Role.MANAGER, Role.AGENT, Role.VIEWER)
+  @Roles(
+    Role.SUPER_ADMIN,
+    Role.ADMIN,
+    Role.MANAGER,
+    Role.OPERATOR,
+    Role.AGENT,
+    Role.VIEWER,
+  )
   getStatusDistribution(@CurrentUser() user: AuthenticatedUser) {
-    return this.analyticsService.getStatusDistribution(user.organizationId);
+    return this.analyticsService.getStatusDistribution(user.organizationId, user);
   }
 
   @Get('source-distribution')
-  @Roles(Role.SUPER_ADMIN, Role.ADMIN, Role.MANAGER, Role.AGENT, Role.VIEWER)
+  @Roles(
+    Role.SUPER_ADMIN,
+    Role.ADMIN,
+    Role.MANAGER,
+    Role.OPERATOR,
+    Role.AGENT,
+    Role.VIEWER,
+  )
   getSourceDistribution(@CurrentUser() user: AuthenticatedUser) {
-    return this.analyticsService.getSourceDistribution(user.organizationId);
+    return this.analyticsService.getSourceDistribution(user.organizationId, user);
   }
 
   @Get('trend')
-  @Roles(Role.SUPER_ADMIN, Role.ADMIN, Role.MANAGER, Role.AGENT, Role.VIEWER)
+  @Roles(
+    Role.SUPER_ADMIN,
+    Role.ADMIN,
+    Role.MANAGER,
+    Role.OPERATOR,
+    Role.AGENT,
+    Role.VIEWER,
+  )
   getTrend(
     @CurrentUser() user: AuthenticatedUser,
     @Query('days') days?: number,
@@ -59,6 +88,7 @@ export class AnalyticsController {
     return this.analyticsService.getTimelineTrend(
       user.organizationId,
       days ? Number(days) : 14,
+      user,
     );
   }
 }

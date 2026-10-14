@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service';
 import { ActivityType, Role } from '@prisma/client';
+import { AuthenticatedUser } from '../auth/interfaces/jwt-payload.interface';
 
 export interface DashboardPayload {
   overview: {
@@ -157,11 +158,25 @@ export class AnalyticsService {
     organizationId: string,
     timeframe = '30d',
     role?: Role,
+    actor?: AuthenticatedUser,
   ): Promise<DashboardPayload> {
-    const isOperator = role === Role.OPERATOR;
-    const cacheKey = isOperator
-      ? `${organizationId}:${timeframe}:OPERATOR`
-      : `${organizationId}:${timeframe}`;
+    const userRole = actor?.role || role;
+    const isOperator = userRole === Role.OPERATOR || userRole === Role.AGENT;
+    const isManager = userRole === Role.MANAGER;
+
+    let cacheKey = `${organizationId}:${timeframe}`;
+    if (actor) {
+      if (isOperator) {
+        cacheKey = `${organizationId}:${timeframe}:OPERATOR:${actor.id}`;
+      } else if (isManager) {
+        cacheKey = `${organizationId}:${timeframe}:MANAGER:${actor.id}`;
+      } else {
+        cacheKey = `${organizationId}:${timeframe}:ADMIN`;
+      }
+    } else if (isOperator) {
+      cacheKey = `${organizationId}:${timeframe}:OPERATOR`;
+    }
+
     const cached = this.dashboardCache.get(cacheKey);
     if (cached && Date.now() < cached.expiresAt) {
       return cached.payload;
@@ -173,7 +188,45 @@ export class AnalyticsService {
     const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
 
-    // Run parallel database queries with strict organizationId filter
+    // Compute scope filters
+    let leadBaseWhere: any = { organizationId };
+    let activityBaseWhere: any = { organizationId };
+    let reminderBaseWhere: any = { organizationId, isCompleted: false };
+    let managerMemberIds: string[] | null = null;
+
+    if (isOperator && actor) {
+      leadBaseWhere = { organizationId, ownerId: actor.id };
+      activityBaseWhere = { organizationId, lead: { ownerId: actor.id } };
+      reminderBaseWhere = {
+        organizationId,
+        isCompleted: false,
+        lead: { ownerId: actor.id },
+      };
+    } else if (isManager && actor) {
+      const managedTeams = await this.prisma.team.findMany({
+        where: { organizationId, managerId: actor.id },
+        include: { members: { select: { userId: true } } },
+      });
+      const memberIds = new Set<string>([actor.id]);
+      for (const t of managedTeams) {
+        for (const m of t.members) {
+          memberIds.add(m.userId);
+        }
+      }
+      managerMemberIds = Array.from(memberIds);
+      leadBaseWhere = { organizationId, ownerId: { in: managerMemberIds } };
+      activityBaseWhere = {
+        organizationId,
+        lead: { ownerId: { in: managerMemberIds } },
+      };
+      reminderBaseWhere = {
+        organizationId,
+        isCompleted: false,
+        lead: { ownerId: { in: managerMemberIds } },
+      };
+    }
+
+    // Run parallel database queries with strict data scoping
     const [
       totalLeads,
       leadsThisPeriod,
@@ -195,18 +248,18 @@ export class AnalyticsService {
       dueTodayFollowUpsCount,
       upcomingFollowUpsCount,
     ] = await Promise.all([
-      // 1. Total leads in org
-      this.prisma.lead.count({ where: { organizationId } }),
+      // 1. Total leads in scope
+      this.prisma.lead.count({ where: leadBaseWhere }),
 
       // 2. Leads created in current timeframe
       this.prisma.lead.count({
-        where: { organizationId, createdAt: { gte: start } },
+        where: { ...leadBaseWhere, createdAt: { gte: start } },
       }),
 
       // 3. Leads created in previous timeframe for comparison
       this.prisma.lead.count({
         where: {
-          organizationId,
+          ...leadBaseWhere,
           createdAt: { gte: previousStart, lt: start },
         },
       }),
@@ -214,7 +267,7 @@ export class AnalyticsService {
       // 4. Won leads
       this.prisma.lead.count({
         where: {
-          organizationId,
+          ...leadBaseWhere,
           status: {
             name: {
               in: ['Won', 'Customer', 'Closed Won'],
@@ -227,26 +280,28 @@ export class AnalyticsService {
       // 5. Lost leads
       this.prisma.lead.count({
         where: {
-          organizationId,
-          status: {
-            name: { in: ['Lost', 'Closed Lost'], mode: 'insensitive' },
-          },
+          ...leadBaseWhere,
+          status: { name: { in: ['Lost', 'Closed Lost'], mode: 'insensitive' } },
         },
       }),
 
-      // 6. Total imports
-      this.prisma.import.count({ where: { organizationId } }),
+      // 6. Total imports (bypassed for Operator)
+      isOperator
+        ? Promise.resolve(0)
+        : this.prisma.import.count({ where: { organizationId } }),
 
-      // 7. Prevented duplicates
-      this.prisma.import.aggregate({
-        where: { organizationId },
-        _sum: { duplicateRows: true },
-      }),
+      // 7. Prevented duplicates (bypassed for Operator)
+      isOperator
+        ? Promise.resolve({ _sum: { duplicateRows: 0 } })
+        : this.prisma.import.aggregate({
+            where: { organizationId },
+            _sum: { duplicateRows: true },
+          }),
 
-      // 8. Leads grouped by status
+      // 8. Leads grouped by status in scope
       this.prisma.lead.groupBy({
         by: ['statusId'],
-        where: { organizationId },
+        where: leadBaseWhere,
         _count: { id: true },
       }),
 
@@ -256,18 +311,22 @@ export class AnalyticsService {
         orderBy: { order: 'asc' },
       }),
 
-      // 10. Leads grouped by source
+      // 10. Leads grouped by source in scope
       this.prisma.lead.groupBy({
         by: ['sourceName'],
-        where: { organizationId },
+        where: leadBaseWhere,
         _count: { id: true },
       }),
 
-      // 11. Team members in org with lead relations (bypassed for Operator to prevent data leakage and DB load)
+      // 11. Team members in scope with lead relations
       isOperator
         ? Promise.resolve([])
         : this.prisma.user.findMany({
-            where: { organizationId, isActive: true },
+            where: {
+              organizationId,
+              isActive: true,
+              ...(managerMemberIds ? { id: { in: managerMemberIds } } : {}),
+            },
             select: {
               id: true,
               firstName: true,
@@ -282,23 +341,25 @@ export class AnalyticsService {
             },
           }),
 
-      // 12. Unassigned leads
-      this.prisma.lead.count({
-        where: { organizationId, ownerId: null },
-      }),
+      // 12. Unassigned leads (0 for Operator)
+      isOperator
+        ? Promise.resolve(0)
+        : this.prisma.lead.count({
+            where: { organizationId, ownerId: null },
+          }),
 
-      // 13. Uncontacted leads (status name 'New')
+      // 13. Uncontacted leads (status name 'New') in scope
       this.prisma.lead.count({
         where: {
-          organizationId,
+          ...leadBaseWhere,
           status: { name: { equals: 'New', mode: 'insensitive' } },
         },
       }),
 
-      // 14. Stale leads (updated more than 7 days ago and not won/lost)
+      // 14. Stale leads in scope (updated > 7 days ago and not won/lost)
       this.prisma.lead.findMany({
         where: {
-          organizationId,
+          ...leadBaseWhere,
           updatedAt: { lt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) },
           status: {
             name: { notIn: ['Won', 'Customer', 'Lost'], mode: 'insensitive' },
@@ -308,9 +369,9 @@ export class AnalyticsService {
         take: 5,
       }),
 
-      // 15. Recent leads (latest 5)
+      // 15. Recent leads in scope (latest 5)
       this.prisma.lead.findMany({
-        where: { organizationId },
+        where: leadBaseWhere,
         orderBy: { createdAt: 'desc' },
         take: 5,
         include: {
@@ -319,10 +380,10 @@ export class AnalyticsService {
         },
       }),
 
-      // 16. Recent activities (latest 8) - filtered for Operator
+      // 16. Recent activities in scope (latest 8)
       this.prisma.leadActivity.findMany({
         where: {
-          organizationId,
+          ...activityBaseWhere,
           ...(isOperator
             ? {
                 type: {
@@ -348,29 +409,26 @@ export class AnalyticsService {
         },
       }),
 
-      // 17. Overdue follow-ups
+      // 17. Overdue follow-ups in scope
       this.prisma.leadReminder.count({
         where: {
-          organizationId,
-          isCompleted: false,
+          ...reminderBaseWhere,
           dueDate: { lt: startOfToday },
         },
       }),
 
-      // 18. Due today follow-ups
+      // 18. Due today follow-ups in scope
       this.prisma.leadReminder.count({
         where: {
-          organizationId,
-          isCompleted: false,
+          ...reminderBaseWhere,
           dueDate: { gte: startOfToday, lte: endOfToday },
         },
       }),
 
-      // 19. Upcoming follow-ups
+      // 19. Upcoming follow-ups in scope
       this.prisma.leadReminder.count({
         where: {
-          organizationId,
-          isCompleted: false,
+          ...reminderBaseWhere,
           dueDate: { gt: endOfToday },
         },
       }),
@@ -431,7 +489,7 @@ export class AnalyticsService {
 
     const periodLeads = await this.prisma.lead.findMany({
       where: {
-        organizationId,
+        ...leadBaseWhere,
         createdAt: { gte: trendStartDate },
       },
       select: { createdAt: true },
@@ -643,8 +701,13 @@ export class AnalyticsService {
   }
 
   // Preserve previous simple overview methods for backwards compatibility
-  async getOverview(organizationId: string) {
-    const d = await this.getDashboard(organizationId, '30d');
+  async getOverview(organizationId: string, actor?: AuthenticatedUser) {
+    const d = await this.getDashboard(
+      organizationId,
+      '30d',
+      actor?.role,
+      actor,
+    );
     return {
       totalLeads: d.overview.totalLeads,
       leadsThisMonth: d.overview.leadsThisPeriod,
@@ -656,18 +719,43 @@ export class AnalyticsService {
     };
   }
 
-  async getStatusDistribution(organizationId: string) {
-    const d = await this.getDashboard(organizationId, 'all');
+  async getStatusDistribution(
+    organizationId: string,
+    actor?: AuthenticatedUser,
+  ) {
+    const d = await this.getDashboard(
+      organizationId,
+      'all',
+      actor?.role,
+      actor,
+    );
     return d.pipeline;
   }
 
-  async getSourceDistribution(organizationId: string) {
-    const d = await this.getDashboard(organizationId, 'all');
+  async getSourceDistribution(
+    organizationId: string,
+    actor?: AuthenticatedUser,
+  ) {
+    const d = await this.getDashboard(
+      organizationId,
+      'all',
+      actor?.role,
+      actor,
+    );
     return d.sources;
   }
 
-  async getTimelineTrend(organizationId: string, days = 14) {
-    const d = await this.getDashboard(organizationId, `${days}d`);
+  async getTimelineTrend(
+    organizationId: string,
+    days = 14,
+    actor?: AuthenticatedUser,
+  ) {
+    const d = await this.getDashboard(
+      organizationId,
+      `${days}d`,
+      actor?.role,
+      actor,
+    );
     return d.trends;
   }
 }

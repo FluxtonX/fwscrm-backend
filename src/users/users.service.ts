@@ -45,7 +45,30 @@ export class UsersService {
       );
     }
 
-    const normalizedEmail = dto.email.toLowerCase().trim();
+    if (!dto.username && !dto.email) {
+      throw new BadRequestException('Username is required');
+    }
+
+    const normalizedUsername = dto.username
+      ? dto.username.toLowerCase().trim()
+      : dto.email!.split('@')[0].toLowerCase().trim();
+
+    // Validate username uniqueness
+    const existingUsername = await this.prisma.user.findFirst({
+      where: {
+        username: normalizedUsername,
+      },
+    });
+
+    if (existingUsername) {
+      throw new ConflictException(
+        `A user with username "${normalizedUsername}" already exists`,
+      );
+    }
+
+    const normalizedEmail = dto.email
+      ? dto.email.toLowerCase().trim()
+      : `${normalizedUsername}@${organizationId.slice(0, 8)}.local`;
 
     const existing = await this.prisma.user.findUnique({
       where: {
@@ -67,7 +90,7 @@ export class UsersService {
     const firstName =
       dto.firstName && dto.firstName.trim().length > 0
         ? dto.firstName.trim()
-        : normalizedEmail.split('@')[0];
+        : normalizedUsername;
     const lastName =
       dto.lastName && dto.lastName.trim().length > 0
         ? dto.lastName.trim()
@@ -101,6 +124,7 @@ export class UsersService {
     const user = await this.prisma.user.create({
       data: {
         organizationId,
+        username: normalizedUsername,
         email: normalizedEmail,
         passwordHash,
         firstName,
@@ -115,6 +139,7 @@ export class UsersService {
         id: true,
         organizationId: true,
         email: true,
+        username: true,
         firstName: true,
         lastName: true,
         role: true,
@@ -122,6 +147,7 @@ export class UsersService {
         accessType: true,
         allowedIp: true,
         accessExpiresAt: true,
+        permissions: true,
         createdAt: true,
         updatedAt: true,
       },
@@ -227,6 +253,7 @@ export class UsersService {
         id: true,
         organizationId: true,
         email: true,
+        username: true,
         firstName: true,
         lastName: true,
         role: true,
@@ -234,6 +261,7 @@ export class UsersService {
         accessType: true,
         allowedIp: true,
         accessExpiresAt: true,
+        permissions: true,
         createdAt: true,
         updatedAt: true,
         _count: {
@@ -285,6 +313,7 @@ export class UsersService {
         id: true,
         organizationId: true,
         email: true,
+        username: true,
         firstName: true,
         lastName: true,
         role: true,
@@ -292,6 +321,7 @@ export class UsersService {
         accessType: true,
         allowedIp: true,
         accessExpiresAt: true,
+        permissions: true,
         createdAt: true,
         updatedAt: true,
       },
@@ -350,6 +380,7 @@ export class UsersService {
         id: true,
         organizationId: true,
         email: true,
+        username: true,
         firstName: true,
         lastName: true,
         role: true,
@@ -357,6 +388,7 @@ export class UsersService {
         accessType: true,
         allowedIp: true,
         accessExpiresAt: true,
+        permissions: true,
         createdAt: true,
         updatedAt: true,
       },
@@ -573,6 +605,7 @@ export class UsersService {
         id: true,
         organizationId: true,
         email: true,
+        username: true,
         firstName: true,
         lastName: true,
         role: true,
@@ -580,6 +613,7 @@ export class UsersService {
         accessType: true,
         allowedIp: true,
         accessExpiresAt: true,
+        permissions: true,
         createdAt: true,
         updatedAt: true,
       },
@@ -655,6 +689,64 @@ export class UsersService {
       success: true,
       message: `Password for ${targetUser.email} has been updated successfully.`,
     };
+  }
+
+  async updateUserPermissions(
+    organizationId: string,
+    targetUserId: string,
+    permissions: Record<string, boolean>,
+    actorId: string,
+  ): Promise<Omit<User, 'passwordHash'>> {
+    const targetUser = await this.prisma.user.findFirst({
+      where: { id: targetUserId, organizationId },
+    });
+
+    if (!targetUser) {
+      throw new NotFoundException(`User with ID "${targetUserId}" not found`);
+    }
+
+    const updated = await this.prisma.user.update({
+      where: { id: targetUserId },
+      data: {
+        permissions: permissions as any,
+      },
+      select: {
+        id: true,
+        organizationId: true,
+        email: true,
+        username: true,
+        firstName: true,
+        lastName: true,
+        role: true,
+        isActive: true,
+        accessType: true,
+        allowedIp: true,
+        accessExpiresAt: true,
+        permissions: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+
+    await this.prisma.auditLog.create({
+      data: {
+        organizationId,
+        actorId,
+        action: 'user.permissions_updated',
+        targetType: 'user',
+        targetId: targetUserId,
+        metadata: {
+          email: targetUser.email,
+          permissions,
+        },
+      },
+    });
+
+    this.logger.log(
+      `Access permissions updated for user ${targetUser.email} by actor ${actorId}`,
+    );
+
+    return updated;
   }
 }
 

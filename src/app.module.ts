@@ -14,6 +14,7 @@ import { EmailModule } from './email/email.module';
 import { RemindersModule } from './reminders/reminders.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { InvitationsModule } from './invitations/invitations.module';
+import { TeamsModule } from './teams/teams.module';
 
 @Module({
   imports: [
@@ -26,6 +27,7 @@ import { InvitationsModule } from './invitations/invitations.module';
     AuthModule,
     OrganizationsModule,
     UsersModule,
+    TeamsModule,
     LeadsModule,
     ActivitiesModule,
     NotesModule,

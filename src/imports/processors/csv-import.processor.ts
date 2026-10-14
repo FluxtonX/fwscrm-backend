@@ -197,6 +197,13 @@ export class CsvImportProcessor {
     let rowBuffer: { rowNumber: number; data: CsvRow }[] = [];
 
     try {
+      // Fetch import record to retrieve original fileName for lead sourceFile tracking
+      const importRecord = await this.prisma.import.findUnique({
+        where: { id: importId },
+        select: { fileName: true },
+      });
+      const sourceFileName = importRecord?.fileName || undefined;
+
       // Pre-load country and lead source maps
       const countries = await this.prisma.country.findMany();
       const countryMap = new Map(
@@ -299,6 +306,7 @@ export class CsvImportProcessor {
               userByName,
               defaultStatus?.id,
               defaultOwnerId,
+              sourceFileName,
             );
             importedRows += batchResult.imported;
             duplicateRows += batchResult.duplicates;
@@ -344,6 +352,7 @@ export class CsvImportProcessor {
               userByName,
               defaultStatus?.id,
               defaultOwnerId,
+              sourceFileName,
             );
             importedRows += batchResult.imported;
             duplicateRows += batchResult.duplicates;
@@ -380,6 +389,7 @@ export class CsvImportProcessor {
           userByName,
           defaultStatus?.id,
           defaultOwnerId,
+          sourceFileName,
         );
         importedRows += batchResult.imported;
         duplicateRows += batchResult.duplicates;
@@ -434,6 +444,7 @@ export class CsvImportProcessor {
     userByName: Map<string, string>,
     defaultStatusId?: string,
     defaultOwnerId?: string,
+    sourceFileName?: string,
   ) {
     let imported = 0;
     let duplicates = 0;
@@ -600,11 +611,13 @@ export class CsvImportProcessor {
                 tag1: row.tag1,
                 ownerId: row.ownerId,
                 statusId: defaultStatusId,
+                sourceFile: sourceFileName,
+                importId: importId,
                 activities: {
                   create: {
                     organizationId,
                     type: ActivityType.IMPORTED,
-                    description: `Imported via CSV batch (Row ${row.rowNumber})`,
+                    description: `Imported via CSV batch (Row ${row.rowNumber}${sourceFileName ? ` from ${sourceFileName}` : ''})`,
                   },
                 },
               },

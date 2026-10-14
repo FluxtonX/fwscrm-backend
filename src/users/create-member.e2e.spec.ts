@@ -42,12 +42,27 @@ describe('Direct Member Creation - E2E Security & Functional Suite', () => {
 
   const mockPrismaService = {
     user: {
+      findFirst: jest.fn(({ where }: any) => {
+        if (where?.username) {
+          const found = dbUsers.find(
+            (u) => u.username && u.username.toLowerCase() === where.username.toLowerCase(),
+          );
+          return Promise.resolve(found || null);
+        }
+        return Promise.resolve(null);
+      }),
       findUnique: jest.fn(({ where }: any) => {
-        if (where.organizationId_email) {
+        if (where?.organizationId_email) {
           const found = dbUsers.find(
             (u) =>
               u.organizationId === where.organizationId_email.organizationId &&
               u.email.toLowerCase() === where.organizationId_email.email.toLowerCase(),
+          );
+          return Promise.resolve(found || null);
+        }
+        if (where?.username) {
+          const found = dbUsers.find(
+            (u) => u.username && u.username.toLowerCase() === where.username.toLowerCase(),
           );
           return Promise.resolve(found || null);
         }

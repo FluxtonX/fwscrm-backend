@@ -45,19 +45,35 @@ describe('PermissionsGuard', () => {
         Permission.LEAD_VIEW,
         Permission.LEAD_CREATE,
         Permission.LEAD_EDIT,
-        Permission.LEAD_IMPORT,
+        Permission.LEAD_ASSIGN_OWNER,
+        Permission.TEAM_VIEW,
       ]);
     const context = createMockContext({ role: Role.MANAGER });
 
     expect(guard.canActivate(context)).toBe(true);
   });
 
-  it('should deny MANAGER access to USER_INVITE or LEAD_DELETE', () => {
+  it('should deny MANAGER access to USER_INVITE, LEAD_DELETE, LEAD_IMPORT, or LEAD_EXPORT', () => {
+    const context = createMockContext({ role: Role.MANAGER });
+
     jest
       .spyOn(reflector, 'getAllAndOverride')
       .mockReturnValue([Permission.USER_INVITE]);
-    const context = createMockContext({ role: Role.MANAGER });
+    expect(() => guard.canActivate(context)).toThrow(ForbiddenException);
 
+    jest
+      .spyOn(reflector, 'getAllAndOverride')
+      .mockReturnValue([Permission.LEAD_DELETE]);
+    expect(() => guard.canActivate(context)).toThrow(ForbiddenException);
+
+    jest
+      .spyOn(reflector, 'getAllAndOverride')
+      .mockReturnValue([Permission.LEAD_IMPORT]);
+    expect(() => guard.canActivate(context)).toThrow(ForbiddenException);
+
+    jest
+      .spyOn(reflector, 'getAllAndOverride')
+      .mockReturnValue([Permission.LEAD_EXPORT]);
     expect(() => guard.canActivate(context)).toThrow(ForbiddenException);
   });
 

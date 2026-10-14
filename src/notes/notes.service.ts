@@ -9,6 +9,7 @@ import { ActivitiesService } from '../activities/activities.service';
 import { ActivityType, Role } from '@prisma/client';
 import { CreateNoteDto } from './dto/create-note.dto';
 import { UpdateNoteDto } from './dto/update-note.dto';
+import { AuthenticatedUser } from '../auth/interfaces/jwt-payload.interface';
 
 @Injectable()
 export class NotesService {
@@ -24,6 +25,7 @@ export class NotesService {
     leadId: string,
     userId: string,
     dto: CreateNoteDto,
+    actor?: AuthenticatedUser,
   ) {
     // Verify lead exists and belongs to the organization
     const lead = await this.prisma.lead.findFirst({
@@ -32,6 +34,12 @@ export class NotesService {
 
     if (!lead) {
       throw new NotFoundException(`Lead with ID "${leadId}" not found`);
+    }
+
+    if (actor && (actor.role === Role.OPERATOR || actor.role === Role.AGENT)) {
+      if (lead.ownerId !== actor.id) {
+        throw new ForbiddenException('You can only add notes to leads assigned to you');
+      }
     }
 
     const note = await this.prisma.leadNote.create({
@@ -70,7 +78,11 @@ export class NotesService {
     return note;
   }
 
-  async findByLead(organizationId: string, leadId: string) {
+  async findByLead(
+    organizationId: string,
+    leadId: string,
+    actor?: AuthenticatedUser,
+  ) {
     // Verify lead exists and belongs to the organization
     const lead = await this.prisma.lead.findFirst({
       where: { id: leadId, organizationId },
@@ -78,6 +90,12 @@ export class NotesService {
 
     if (!lead) {
       throw new NotFoundException(`Lead with ID "${leadId}" not found`);
+    }
+
+    if (actor && (actor.role === Role.OPERATOR || actor.role === Role.AGENT)) {
+      if (lead.ownerId !== actor.id) {
+        throw new ForbiddenException('You can only view notes for leads assigned to you');
+      }
     }
 
     return this.prisma.leadNote.findMany({

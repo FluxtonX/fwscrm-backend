@@ -111,4 +111,21 @@ export class UsersController {
   ) {
     return this.usersService.adminResetPassword(user.organizationId, id, dto, user.id);
   }
+
+  @Patch(':id/permissions')
+  @HttpCode(HttpStatus.OK)
+  @Roles(Role.SUPER_ADMIN, Role.ADMIN)
+  updateUserPermissions(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @Body() body: { permissions: Record<string, boolean> },
+  ) {
+    return this.usersService.updateUserPermissions(
+      user.organizationId,
+      id,
+      body.permissions || {},
+      user.id,
+    );
+  }
 }
+

@@ -41,5 +41,9 @@ export class QueryLeadsDto extends PaginationQueryDto {
   @IsOptional()
   @IsString()
   columns?: string;
+
+  @IsOptional()
+  @IsString()
+  sourceFile?: string;
 }
 

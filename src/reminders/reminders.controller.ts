@@ -30,7 +30,7 @@ export class RemindersController {
     @Param('leadId') leadId: string,
     @Body() dto: CreateReminderDto,
   ) {
-    return this.remindersService.create(user.organizationId, leadId, user.id, dto);
+    return this.remindersService.create(user.organizationId, leadId, user.id, dto, user);
   }
 
   @Get()
@@ -39,7 +39,7 @@ export class RemindersController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('leadId') leadId: string,
   ) {
-    return this.remindersService.listByLead(user.organizationId, leadId);
+    return this.remindersService.listByLead(user.organizationId, leadId, user);
   }
 
   @Patch(':reminderId')

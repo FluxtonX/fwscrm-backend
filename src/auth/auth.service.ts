@@ -9,7 +9,7 @@ import { JwtService } from '@nestjs/jwt';
 import { Response } from 'express';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../database/prisma.service';
-import { Role } from '@prisma/client';
+import { Role, Prisma } from '@prisma/client';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
@@ -112,17 +112,30 @@ export class AuthService {
   }
 
   async login(dto: LoginDto, clientIp?: string) {
+    const identifier = (dto.username || dto.email || '').toLowerCase().trim();
+    const isEmailLogin = Boolean(dto.email && !dto.username);
+    const invalidMsg = isEmailLogin
+      ? 'Invalid email or password'
+      : 'Invalid username or password';
+
+    const whereClause: Prisma.UserWhereInput = isEmailLogin
+      ? { email: identifier }
+      : {
+          OR: [
+            { username: identifier },
+            { email: identifier },
+          ],
+        };
+
     const user = await this.prisma.user.findFirst({
-      where: {
-        email: dto.email.toLowerCase(),
-      },
+      where: whereClause,
       include: {
         organization: true,
       },
     });
 
     if (!user) {
-      throw new UnauthorizedException('Invalid email or password');
+      throw new UnauthorizedException(invalidMsg);
     }
 
     if (!user.isActive) {
@@ -134,7 +147,7 @@ export class AuthService {
       user.passwordHash,
     );
     if (!isPasswordValid) {
-      throw new UnauthorizedException('Invalid email or password');
+      throw new UnauthorizedException(invalidMsg);
     }
 
     // Role-based IP and Expiration Access Enforcement (Manager & Operator only)
@@ -160,16 +173,18 @@ export class AuthService {
 
     const token = this.generateToken(user);
     this.logger.log(
-      `User logged in: ${user.email} (${user.role}) in org ${user.organizationId}`,
+      `User logged in: ${user.username || user.email} (${user.role}) in org ${user.organizationId}`,
     );
 
     return {
       user: {
         id: user.id,
         email: user.email,
+        username: user.username,
         firstName: user.firstName,
         lastName: user.lastName,
         role: user.role,
+        permissions: (user as any).permissions || null,
       },
       organization: {
         id: user.organization.id,
@@ -204,9 +219,11 @@ export class AuthService {
       user: {
         id: user.id,
         email: user.email,
+        username: user.username,
         firstName: user.firstName,
         lastName: user.lastName,
         role: user.role,
+        permissions: (user as any).permissions || null,
       },
       organization: {
         id: user.organization.id,
@@ -219,12 +236,14 @@ export class AuthService {
   generateToken(user: {
     id: string;
     email: string;
+    username?: string | null;
     organizationId: string;
     role: Role;
   }): string {
     const payload: JwtPayload = {
       sub: user.id,
       email: user.email,
+      username: user.username,
       organizationId: user.organizationId,
       role: user.role,
     };

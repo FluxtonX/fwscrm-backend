@@ -21,6 +21,8 @@ export enum Permission {
   USER_DEACTIVATE = 'user.deactivate',
   USER_REACTIVATE = 'user.reactivate',
   USER_DELETE = 'user.delete',
+  TEAM_VIEW = 'team.view',
+  TEAM_MANAGE = 'team.manage',
 
   // Analytics & Activity Permissions
   ANALYTICS_VIEW = 'analytics.view',

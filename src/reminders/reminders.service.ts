@@ -2,11 +2,14 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  ForbiddenException,
   Logger,
 } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service';
 import { CreateReminderDto } from './dto/create-reminder.dto';
 import { UpdateReminderDto } from './dto/update-reminder.dto';
+import { Role } from '@prisma/client';
+import { AuthenticatedUser } from '../auth/interfaces/jwt-payload.interface';
 
 import { NotificationsService } from '../notifications/notifications.service';
 
@@ -71,6 +74,7 @@ export class RemindersService {
     leadId: string,
     currentUserId: string,
     dto: CreateReminderDto,
+    actor?: AuthenticatedUser,
   ) {
     const lead = await this.prisma.lead.findFirst({
       where: { id: leadId, organizationId },
@@ -78,6 +82,14 @@ export class RemindersService {
 
     if (!lead) {
       throw new NotFoundException(`Lead with ID "${leadId}" not found`);
+    }
+
+    if (actor && (actor.role === Role.OPERATOR || actor.role === Role.AGENT)) {
+      if (lead.ownerId !== actor.id) {
+        throw new ForbiddenException(
+          'You can only create follow-ups for leads assigned to you',
+        );
+      }
     }
 
     let targetUserId = currentUserId;
@@ -145,13 +157,25 @@ export class RemindersService {
     return this.enrichReminder(reminder);
   }
 
-  async listByLead(organizationId: string, leadId: string) {
+  async listByLead(
+    organizationId: string,
+    leadId: string,
+    actor?: AuthenticatedUser,
+  ) {
     const lead = await this.prisma.lead.findFirst({
       where: { id: leadId, organizationId },
     });
 
     if (!lead) {
       throw new NotFoundException(`Lead with ID "${leadId}" not found`);
+    }
+
+    if (actor && (actor.role === Role.OPERATOR || actor.role === Role.AGENT)) {
+      if (lead.ownerId !== actor.id) {
+        throw new ForbiddenException(
+          'You can only view follow-ups for leads assigned to you',
+        );
+      }
     }
 
     const reminders = await this.prisma.leadReminder.findMany({

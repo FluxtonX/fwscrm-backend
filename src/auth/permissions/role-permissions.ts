@@ -9,13 +9,11 @@ export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
   ),
 
   [Role.MANAGER]: [
-    // Lead operations (sees all leads, creates, edits, assigns owner, imports, exports)
+    // Lead operations (sees all leads, creates, edits, assigns owner - imports and exports restricted to Admin)
     Permission.LEAD_VIEW,
     Permission.LEAD_CREATE,
     Permission.LEAD_EDIT,
     Permission.LEAD_ASSIGN_OWNER,
-    Permission.LEAD_IMPORT,
-    Permission.LEAD_EXPORT,
     Permission.LEAD_SEND_NUMBERS,
 
     // Notes
@@ -23,8 +21,9 @@ export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
     Permission.NOTE_EDIT,
     Permission.NOTE_DELETE,
 
-    // User inspection only (cannot invite, edit roles, or deactivate)
+    // User & Team inspection
     Permission.USER_VIEW,
+    Permission.TEAM_VIEW,
 
     // Views
     Permission.ANALYTICS_VIEW,

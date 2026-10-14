@@ -3,12 +3,16 @@ import {
   Logger,
   NotFoundException,
   ConflictException,
+  ForbiddenException,
+  BadRequestException,
 } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service';
-import { Lead, ActivityType, Prisma } from '@prisma/client';
+import { Lead, ActivityType, Prisma, Role, NotificationType } from '@prisma/client';
 import { QueryLeadsDto } from './dto/query-leads.dto';
 import { CreateLeadDto } from './dto/create-lead.dto';
 import { UpdateLeadDto } from './dto/update-lead.dto';
+import { TransferLeadsDto } from './dto/transfer-leads.dto';
+import { AuthenticatedUser } from '../auth/interfaces/jwt-payload.interface';
 import { PaginatedResult } from '../common/interfaces/paginated-result.interface';
 
 @Injectable()
@@ -21,6 +25,7 @@ export class LeadsService {
     organizationId: string,
     query: QueryLeadsDto,
     currentUserId?: string,
+    actor?: AuthenticatedUser,
   ): Promise<PaginatedResult<Lead>> {
     const page = Math.max(1, query.page || 1);
     const limit = Math.min(100, Math.max(1, query.limit || 25));
@@ -95,11 +100,45 @@ export class LeadsService {
       });
     }
 
-    if (query.ownerId) {
-      if (query.ownerId === 'unassigned') {
-        andConditions.push({ ownerId: null });
-      } else {
+    const isOperator = actor?.role === Role.OPERATOR || actor?.role === Role.AGENT;
+    const isManager = actor?.role === Role.MANAGER;
+
+    if (isOperator) {
+      // Operators are strictly restricted to their own assigned leads
+      andConditions.push({ ownerId: actor!.id });
+    } else if (isManager) {
+      // Managers are restricted to their team members and themselves
+      const managedTeams = await this.prisma.team.findMany({
+        where: {
+          organizationId,
+          OR: [
+            { managerId: actor!.id },
+            { members: { some: { userId: actor!.id } } },
+          ],
+        },
+        include: { members: { select: { userId: true } } },
+      });
+
+      const teamMemberIds = new Set<string>();
+      teamMemberIds.add(actor!.id);
+      for (const t of managedTeams) {
+        if (t.managerId) teamMemberIds.add(t.managerId);
+        for (const m of t.members) teamMemberIds.add(m.userId);
+      }
+
+      if (query.ownerId && teamMemberIds.has(query.ownerId)) {
         andConditions.push({ ownerId: query.ownerId });
+      } else {
+        andConditions.push({ ownerId: { in: Array.from(teamMemberIds) } });
+      }
+    } else {
+      // SuperAdmin / Admin can filter by any ownerId or view all leads
+      if (query.ownerId) {
+        if (query.ownerId === 'unassigned') {
+          andConditions.push({ ownerId: null });
+        } else {
+          andConditions.push({ ownerId: query.ownerId });
+        }
       }
     }
 
@@ -112,6 +151,12 @@ export class LeadsService {
     if (query.tag1) {
       andConditions.push({
         tag1: { contains: query.tag1, mode: 'insensitive' },
+      });
+    }
+
+    if (query.sourceFile) {
+      andConditions.push({
+        sourceFile: { contains: query.sourceFile, mode: 'insensitive' },
       });
     }
 
@@ -164,6 +209,25 @@ export class LeadsService {
           const last7Days = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
           andConditions.push({ createdAt: { gte: last7Days } });
           break;
+        case 'call':
+        case 'call_queue':
+          andConditions.push({
+            phone: { not: null },
+            status: {
+              name: {
+                notIn: ['Appointment', 'Wrong Info', 'Won', 'Customer'],
+                mode: 'insensitive',
+              },
+            },
+          });
+          break;
+        case 'appointments':
+          andConditions.push({
+            status: {
+              name: { equals: 'Appointment', mode: 'insensitive' },
+            },
+          });
+          break;
         case 'all':
         default:
           break;
@@ -185,6 +249,7 @@ export class LeadsService {
       phone: 'phone',
       countryName: 'countryName',
       sourceName: 'sourceName',
+      sourceFile: 'sourceFile',
       createdAt: 'createdAt',
       updatedAt: 'updatedAt',
     };
@@ -224,7 +289,11 @@ export class LeadsService {
     };
   }
 
-  async findById(organizationId: string, id: string): Promise<Lead> {
+  async findById(
+    organizationId: string,
+    id: string,
+    actor?: AuthenticatedUser,
+  ): Promise<Lead> {
     const lead = await this.prisma.lead.findFirst({
       where: {
         id,
@@ -253,6 +322,39 @@ export class LeadsService {
 
     if (!lead) {
       throw new NotFoundException(`Lead with ID "${id}" not found`);
+    }
+
+    if (actor) {
+      const isOperator = actor.role === Role.OPERATOR || actor.role === Role.AGENT;
+      const isManager = actor.role === Role.MANAGER;
+
+      if (isOperator && lead.ownerId !== actor.id) {
+        throw new ForbiddenException('You do not have permission to access this lead');
+      }
+
+      if (isManager) {
+        const managedTeams = await this.prisma.team.findMany({
+          where: {
+            organizationId,
+            OR: [
+              { managerId: actor.id },
+              { members: { some: { userId: actor.id } } },
+            ],
+          },
+          include: { members: { select: { userId: true } } },
+        });
+
+        const teamMemberIds = new Set<string>();
+        teamMemberIds.add(actor.id);
+        for (const t of managedTeams) {
+          if (t.managerId) teamMemberIds.add(t.managerId);
+          for (const m of t.members) teamMemberIds.add(m.userId);
+        }
+
+        if (!lead.ownerId || !teamMemberIds.has(lead.ownerId)) {
+          throw new ForbiddenException('You do not have permission to access leads outside your assigned team');
+        }
+      }
     }
 
     return lead;
@@ -343,8 +445,21 @@ export class LeadsService {
     id: string,
     dto: UpdateLeadDto,
     updatedById?: string,
+    actor?: AuthenticatedUser,
   ): Promise<Lead> {
-    const existing = await this.findById(organizationId, id); // Verify ownership
+    const existing = await this.findById(organizationId, id, actor); // Verify ownership & permissions
+
+    if (actor) {
+      const isOperator = actor.role === Role.OPERATOR || actor.role === Role.AGENT;
+      if (isOperator) {
+        if (existing.ownerId !== actor.id) {
+          throw new ForbiddenException('You can only update leads assigned to you');
+        }
+        if (dto.ownerId && dto.ownerId !== actor.id) {
+          throw new ForbiddenException('Operators cannot reassign lead ownership');
+        }
+      }
+    }
 
     const data: Prisma.LeadUpdateInput = {};
     if (dto.firstName !== undefined) data.firstName = dto.firstName;
@@ -378,6 +493,14 @@ export class LeadsService {
     const updated = await this.prisma.lead.update({
       where: { id },
       data,
+      include: {
+        status: true,
+        source: true,
+        country: true,
+        owner: {
+          select: { id: true, firstName: true, lastName: true, email: true },
+        },
+      },
     });
 
     const isStatusChanged =
@@ -438,11 +561,352 @@ export class LeadsService {
     return { success: true };
   }
 
+  async getEligibleTransferUsers(
+    organizationId: string,
+    actor: AuthenticatedUser,
+  ) {
+    const isSuperAdminOrAdmin =
+      actor.role === Role.SUPER_ADMIN || actor.role === Role.ADMIN;
+    const isManager = actor.role === Role.MANAGER;
+
+    if (!isSuperAdminOrAdmin && !isManager) {
+      throw new ForbiddenException(
+        'Only Administrators and Managers are permitted to access lead transfer controls',
+      );
+    }
+
+    if (isSuperAdminOrAdmin) {
+      const users = await this.prisma.user.findMany({
+        where: {
+          organizationId,
+          isActive: true,
+        },
+        select: {
+          id: true,
+          username: true,
+          email: true,
+          firstName: true,
+          lastName: true,
+          role: true,
+          _count: {
+            select: { ownedLeads: true },
+          },
+        },
+        orderBy: [{ role: 'asc' }, { firstName: 'asc' }],
+      });
+
+      const unassignedCount = await this.prisma.lead.count({
+        where: {
+          organizationId,
+          ownerId: null,
+        },
+      });
+
+      return {
+        scope: 'admin' as const,
+        users: users.map((u) => ({
+          id: u.id,
+          username: u.username,
+          name: `${u.firstName} ${u.lastName}`.trim() || u.username || u.email,
+          email: u.email,
+          role: u.role,
+          leadCount: u._count.ownedLeads,
+        })),
+        unassignedCount,
+      };
+    } else {
+      // Manager scope: only manager and active members of the manager's team(s)
+      const managedTeams = await this.prisma.team.findMany({
+        where: {
+          organizationId,
+          OR: [
+            { managerId: actor.id },
+            { members: { some: { userId: actor.id } } },
+          ],
+        },
+        include: {
+          manager: {
+            select: {
+              id: true,
+              username: true,
+              email: true,
+              firstName: true,
+              lastName: true,
+              role: true,
+              _count: { select: { ownedLeads: true } },
+            },
+          },
+          members: {
+            include: {
+              user: {
+                select: {
+                  id: true,
+                  username: true,
+                  email: true,
+                  firstName: true,
+                  lastName: true,
+                  role: true,
+                  isActive: true,
+                  _count: { select: { ownedLeads: true } },
+                },
+              },
+            },
+          },
+        },
+      });
+
+      const userMap = new Map<string, any>();
+
+      for (const team of managedTeams) {
+        if (team.manager) {
+          userMap.set(team.manager.id, {
+            id: team.manager.id,
+            username: team.manager.username,
+            name:
+              `${team.manager.firstName} ${team.manager.lastName}`.trim() ||
+              team.manager.username ||
+              team.manager.email,
+            email: team.manager.email,
+            role: team.manager.role,
+            teamName: team.name,
+            leadCount: team.manager._count?.ownedLeads ?? 0,
+          });
+        }
+        for (const member of team.members) {
+          if (member.user && member.user.isActive) {
+            userMap.set(member.user.id, {
+              id: member.user.id,
+              username: member.user.username,
+              name:
+                `${member.user.firstName} ${member.user.lastName}`.trim() ||
+                member.user.username ||
+                member.user.email,
+              email: member.user.email,
+              role: member.user.role,
+              teamName: team.name,
+              leadCount: member.user._count?.ownedLeads ?? 0,
+            });
+          }
+        }
+      }
+
+      return {
+        scope: 'manager' as const,
+        users: Array.from(userMap.values()),
+        unassignedCount: 0,
+      };
+    }
+  }
+
+  async transferLeads(
+    organizationId: string,
+    dto: TransferLeadsDto,
+    actor: AuthenticatedUser,
+  ): Promise<{
+    count: number;
+    transferredLeadIds: string[];
+    toUser: { id: string; name: string };
+  }> {
+    const isSuperAdminOrAdmin =
+      actor.role === Role.SUPER_ADMIN || actor.role === Role.ADMIN;
+    const isManager = actor.role === Role.MANAGER;
+
+    if (!isSuperAdminOrAdmin && !isManager) {
+      throw new ForbiddenException(
+        'Only Administrators and Managers are permitted to transfer leads',
+      );
+    }
+
+    const leadIds = Array.from(new Set((dto.leadIds || []).filter(Boolean)));
+    if (leadIds.length === 0) {
+      throw new BadRequestException('At least one lead ID must be provided');
+    }
+
+    // 1. Verify destination user exists in org and is active
+    const toUser = await this.prisma.user.findFirst({
+      where: {
+        id: dto.toUserId,
+        organizationId,
+        isActive: true,
+      },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        username: true,
+        email: true,
+        role: true,
+      },
+    });
+
+    if (!toUser) {
+      throw new NotFoundException('Destination user not found or is inactive');
+    }
+
+    // 2. Enforce Manager Team Boundaries
+    if (isManager) {
+      const managedTeams = await this.prisma.team.findMany({
+        where: {
+          organizationId,
+          OR: [
+            { managerId: actor.id },
+            { members: { some: { userId: actor.id } } },
+          ],
+        },
+        include: {
+          members: { select: { userId: true } },
+        },
+      });
+
+      const allowedMemberIds = new Set<string>();
+      allowedMemberIds.add(actor.id);
+      for (const t of managedTeams) {
+        if (t.managerId) allowedMemberIds.add(t.managerId);
+        for (const m of t.members) {
+          allowedMemberIds.add(m.userId);
+        }
+      }
+
+      // Check destination user belongs to manager's team
+      if (!allowedMemberIds.has(dto.toUserId)) {
+        throw new ForbiddenException(
+          'Managers can only transfer leads to members of their assigned team',
+        );
+      }
+
+      // Check source user if specified
+      if (dto.fromUserId && !allowedMemberIds.has(dto.fromUserId)) {
+        throw new ForbiddenException(
+          'Managers can only transfer leads from members of their assigned team',
+        );
+      }
+
+      // Verify all leads being transferred belong to members of manager's team
+      const existingLeads = await this.prisma.lead.findMany({
+        where: {
+          id: { in: leadIds },
+          organizationId,
+        },
+        select: { id: true, ownerId: true },
+      });
+
+      if (existingLeads.length === 0) {
+        throw new NotFoundException('No matching leads found to transfer');
+      }
+
+      for (const lead of existingLeads) {
+        if (!lead.ownerId || !allowedMemberIds.has(lead.ownerId)) {
+          throw new ForbiddenException(
+            'Managers can only transfer leads belonging to members of their assigned team',
+          );
+        }
+      }
+    }
+
+    const toUserName =
+      `${toUser.firstName} ${toUser.lastName}`.trim() ||
+      toUser.username ||
+      toUser.email;
+
+    let fromUserName: string | null = null;
+    if (dto.fromUserId) {
+      const fromUser = await this.prisma.user.findFirst({
+        where: { id: dto.fromUserId, organizationId },
+        select: { firstName: true, lastName: true, username: true, email: true },
+      });
+      if (fromUser) {
+        fromUserName =
+          `${fromUser.firstName} ${fromUser.lastName}`.trim() ||
+          fromUser.username ||
+          fromUser.email;
+      }
+    }
+
+    const transferDescription = fromUserName
+      ? `Lead transferred from ${fromUserName} to ${toUserName} by ${actor.username || actor.email}`
+      : `Lead transferred to ${toUserName} by ${actor.username || actor.email}`;
+
+    // 3. Perform atomic transfer in database transaction
+    const updateResult = await this.prisma.$transaction(async (tx) => {
+      const updated = await tx.lead.updateMany({
+        where: {
+          id: { in: leadIds },
+          organizationId,
+        },
+        data: {
+          ownerId: dto.toUserId,
+        },
+      });
+
+      await tx.leadActivity.createMany({
+        data: leadIds.map((leadId) => ({
+          organizationId,
+          leadId,
+          type: ActivityType.OWNER_ASSIGNED,
+          description: transferDescription,
+        })),
+      });
+
+      await tx.auditLog.create({
+        data: {
+          organizationId,
+          actorId: actor.id,
+          action: 'lead.transferred',
+          targetType: 'lead_batch',
+          targetId: dto.toUserId,
+          metadata: {
+            transferredCount: updated.count,
+            leadIds,
+            fromUserId: dto.fromUserId || null,
+            toUserId: dto.toUserId,
+          },
+        },
+      });
+
+      if (toUser.id !== actor.id) {
+        await tx.notification.create({
+          data: {
+            organizationId,
+            recipientUserId: toUser.id,
+            type: NotificationType.SYSTEM,
+            title: 'Leads Transferred',
+            message: `${updated.count} lead(s) were assigned to you by ${actor.username || actor.email}`,
+          },
+        });
+      }
+
+      return updated;
+    });
+
+    this.logger.log(
+      `Transferred ${updateResult.count} leads to ${toUserName} (${dto.toUserId}) in org ${organizationId} by actor ${actor.id}`,
+    );
+
+    return {
+      count: updateResult.count,
+      transferredLeadIds: leadIds,
+      toUser: {
+        id: toUser.id,
+        name: toUserName,
+      },
+    };
+  }
+
   async bulkAssign(
     organizationId: string,
     leadIds: string[],
     ownerId: string,
+    actor?: AuthenticatedUser,
   ): Promise<{ count: number }> {
+    if (actor) {
+      const result = await this.transferLeads(
+        organizationId,
+        { leadIds, toUserId: ownerId },
+        actor,
+      );
+      return { count: result.count };
+    }
+
     const result = await this.prisma.lead.updateMany({
       where: {
         id: { in: leadIds },
@@ -714,10 +1178,18 @@ export class LeadsService {
     organizationId: string,
     query: QueryLeadsDto,
     specificLeadIds?: string[],
+    actor?: AuthenticatedUser,
   ): Promise<string> {
     const andConditions: Prisma.LeadWhereInput[] = [
       { organizationId },
     ];
+
+    if (actor) {
+      const isOperator = actor.role === Role.OPERATOR || actor.role === Role.AGENT;
+      if (isOperator) {
+        andConditions.push({ ownerId: actor.id });
+      }
+    }
 
     if (specificLeadIds && specificLeadIds.length > 0) {
       andConditions.push({ id: { in: specificLeadIds } });
@@ -766,10 +1238,13 @@ export class LeadsService {
       }
 
       if (query.ownerId) {
-        if (query.ownerId === 'unassigned') {
-          andConditions.push({ ownerId: null });
-        } else {
-          andConditions.push({ ownerId: query.ownerId });
+        const isOperator = actor && (actor.role === Role.OPERATOR || actor.role === Role.AGENT);
+        if (!isOperator) {
+          if (query.ownerId === 'unassigned') {
+            andConditions.push({ ownerId: null });
+          } else {
+            andConditions.push({ ownerId: query.ownerId });
+          }
         }
       }
 
@@ -782,6 +1257,12 @@ export class LeadsService {
       if (query.tag1) {
         andConditions.push({
           tag1: { contains: query.tag1, mode: 'insensitive' },
+        });
+      }
+
+      if (query.sourceFile) {
+        andConditions.push({
+          sourceFile: { contains: query.sourceFile, mode: 'insensitive' },
         });
       }
 
@@ -832,6 +1313,7 @@ export class LeadsService {
       { id: 'leadSource', label: 'Lead Source', getValue: (l) => l.sourceName || l.source?.name || '' },
       { id: 'referrer', label: 'Referrer', getValue: (l) => l.referrer || '' },
       { id: 'tag1', label: 'Tags', getValue: (l) => l.tag1 || '' },
+      { id: 'sourceFile', label: 'Source File', getValue: (l) => l.sourceFile || '' },
       { id: 'status', label: 'Status', getValue: (l) => l.status?.name || '' },
       { id: 'owner', label: 'Owner', getValue: (l) => (l.owner ? `${l.owner.firstName} ${l.owner.lastName}`.trim() : '') },
       { id: 'createdAt', label: 'Created At', getValue: (l) => (l.createdAt ? new Date(l.createdAt).toISOString() : '') },

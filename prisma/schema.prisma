@@ -71,6 +71,7 @@ model Organization {
   invitations   Invitation[]
   auditLogs     AuditLog[]
   notifications Notification[]
+  teams         Team[]
 
   @@map("organizations")
 }
@@ -79,6 +80,7 @@ model User {
   id             String   @id @default(uuid())
   organizationId String   @map("organization_id")
   email          String
+  username       String?  @unique
   passwordHash   String   @map("password_hash")
   firstName      String   @map("first_name")
   lastName       String   @map("last_name")
@@ -87,6 +89,7 @@ model User {
   accessType     AccessType? @map("access_type")
   allowedIp      String?     @map("allowed_ip")
   accessExpiresAt DateTime?  @map("access_expires_at")
+  permissions    Json?       @map("permissions")
   createdAt      DateTime    @default(now()) @map("created_at")
   updatedAt      DateTime    @updatedAt @map("updated_at")
 
@@ -100,10 +103,45 @@ model User {
   issuedInvitations Invitation[]   @relation("InvitedByUser")
   auditLogs         AuditLog[]
   notifications     Notification[]
+  managedTeams      Team[]         @relation("TeamManager")
+  teamMemberships   TeamMember[]
 
   @@unique([organizationId, email])
   @@index([organizationId])
   @@map("users")
+}
+
+model Team {
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  name           String
+  description    String?
+  managerId      String?  @map("manager_id")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  manager      User?        @relation("TeamManager", fields: [managerId], references: [id], onDelete: SetNull)
+  members      TeamMember[]
+
+  @@unique([organizationId, name])
+  @@index([organizationId])
+  @@map("teams")
+}
+
+model TeamMember {
+  id        String   @id @default(uuid())
+  teamId    String   @map("team_id")
+  userId    String   @map("user_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([teamId, userId])
+  @@index([teamId])
+  @@index([userId])
+  @@map("team_members")
 }
 
 model Country {
@@ -181,6 +219,8 @@ model Lead {
   subAffiliateId String?  @map("sub_affiliate_id")
   referrer       String?  // Exact CSV mapping
   tag1           String?  // Exact CSV mapping
+  sourceFile     String?  @map("source_file")
+  importId       String?  @map("import_id")
   ownerId        String?  @map("owner_id")
   createdAt      DateTime @default(now()) @map("created_at")
   updatedAt      DateTime @updatedAt @map("updated_at")
@@ -192,6 +232,7 @@ model Lead {
   source       LeadSource?   @relation(fields: [sourceId], references: [id], onDelete: SetNull)
   subAffiliate SubAffiliate? @relation(fields: [subAffiliateId], references: [id], onDelete: SetNull)
   owner        User?         @relation("LeadOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  import       Import?       @relation(fields: [importId], references: [id], onDelete: SetNull)
 
   activities    LeadActivity[]
   notes         LeadNote[]
@@ -287,6 +328,7 @@ model Import {
 
   organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   user         User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
+  leads        Lead[]
   errors       ImportError[]
 
   @@index([organizationId, createdAt(sort: Desc)])

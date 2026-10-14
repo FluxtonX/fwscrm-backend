@@ -30,7 +30,7 @@ export class NotesController {
     @Param('leadId') leadId: string,
     @Body() dto: CreateNoteDto,
   ) {
-    return this.notesService.create(user.organizationId, leadId, user.id, dto);
+    return this.notesService.create(user.organizationId, leadId, user.id, dto, user);
   }
 
   @Get()
@@ -39,7 +39,7 @@ export class NotesController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('leadId') leadId: string,
   ) {
-    return this.notesService.findByLead(user.organizationId, leadId);
+    return this.notesService.findByLead(user.organizationId, leadId, user);
   }
 
   @Patch(':noteId')

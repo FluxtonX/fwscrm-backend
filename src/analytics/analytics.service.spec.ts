@@ -39,7 +39,8 @@ describe('AnalyticsService', () => {
     }).compile();
 
     service = module.get<AnalyticsService>(AnalyticsService);
-    jest.clearAllMocks();
+    jest.resetAllMocks();
+    mockPrisma.leadReminder.count.mockResolvedValue(0);
   });
 
   it('should be defined', () => {
@@ -154,7 +155,6 @@ describe('AnalyticsService', () => {
         .mockResolvedValueOnce(5)
         .mockResolvedValueOnce(5)
         .mockResolvedValueOnce(2)
-        .mockResolvedValueOnce(1)
         .mockResolvedValueOnce(1);
 
       mockPrisma.import.count.mockResolvedValue(1);

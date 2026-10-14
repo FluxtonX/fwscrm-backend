@@ -29,6 +29,7 @@ export class ActivitiesController {
       user.organizationId,
       leadId,
       user.role,
+      user,
     );
   }
 
@@ -49,6 +50,7 @@ export class ActivitiesController {
       user.organizationId,
       limit ? Number(limit) : 10,
       user.role,
+      user,
     );
   }
 }

@@ -11,10 +11,17 @@ import { Transform } from 'class-transformer';
 import { Role, AccessType } from '@prisma/client';
 
 export class CreateMemberDto {
+  @IsOptional()
+  @IsString()
+  @MinLength(3, { message: 'Username must be at least 3 characters long' })
+  @MaxLength(50, { message: 'Username cannot exceed 50 characters' })
+  @Transform(({ value }: { value: string }) => (value ? value.trim().toLowerCase() : undefined))
+  username?: string;
+
+  @IsOptional()
   @IsEmail({}, { message: 'A valid email address is required' })
-  @IsNotEmpty({ message: 'Email address is required' })
-  @Transform(({ value }: { value: string }) => value?.trim().toLowerCase())
-  email!: string;
+  @Transform(({ value }: { value: string }) => (value ? value.trim().toLowerCase() : undefined))
+  email?: string;
 
   @IsString()
   @IsNotEmpty({ message: 'Password is required' })

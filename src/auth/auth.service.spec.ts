@@ -25,6 +25,7 @@ describe('AuthService', () => {
     id: 'user-1',
     organizationId: mockOrg.id,
     email: 'admin@acme.com',
+    username: 'admin',
     passwordHash: 'hashed_password',
     firstName: 'Alice',
     lastName: 'Admin',
@@ -114,12 +115,26 @@ describe('AuthService', () => {
   });
 
   describe('login', () => {
-    it('should return user and token when credentials are valid', async () => {
+    it('should return user and token when username and password are valid', async () => {
       mockPrismaService.user.findFirst.mockResolvedValue(mockUser);
       (bcrypt.compare as jest.Mock).mockResolvedValue(true);
 
       const result = await service.login({
-        email: 'admin@acme.com',
+        username: 'admin',
+        password: 'correctPassword',
+      });
+
+      expect(result.user.email).toBe('admin@acme.com');
+      expect(result.user.username).toBe('admin');
+      expect(result.token).toBe('mock.jwt.token');
+    });
+
+    it('should return user and token when using email fallback', async () => {
+      mockPrismaService.user.findFirst.mockResolvedValue(mockUser);
+      (bcrypt.compare as jest.Mock).mockResolvedValue(true);
+
+      const result = await service.login({
+        username: 'admin@acme.com',
         password: 'correctPassword',
       });
 
@@ -133,7 +148,7 @@ describe('AuthService', () => {
 
       await expect(
         service.login({
-          email: 'admin@acme.com',
+          username: 'admin',
           password: 'wrongPassword',
         }),
       ).rejects.toThrow(UnauthorizedException);
@@ -144,7 +159,7 @@ describe('AuthService', () => {
 
       await expect(
         service.login({
-          email: 'unknown@acme.com',
+          username: 'unknown_user',
           password: 'anyPassword',
         }),
       ).rejects.toThrow(UnauthorizedException);
@@ -158,7 +173,7 @@ describe('AuthService', () => {
 
       await expect(
         service.login({
-          email: 'admin@acme.com',
+          username: 'admin',
           password: 'correctPassword',
         }),
       ).rejects.toThrow(UnauthorizedException);
@@ -169,6 +184,7 @@ describe('AuthService', () => {
         ...mockUser,
         id: 'user-manager',
         email: 'manager@acme.com',
+        username: 'manager_user',
         role: Role.MANAGER,
         allowedIp: '198.51.100.1',
         accessExpiresAt: null,
@@ -179,7 +195,7 @@ describe('AuthService', () => {
         (bcrypt.compare as jest.Mock).mockResolvedValue(true);
 
         const result = await service.login(
-          { email: 'manager@acme.com', password: 'correctPassword' },
+          { username: 'manager_user', password: 'correctPassword' },
           '198.51.100.1',
         );
 
@@ -193,7 +209,7 @@ describe('AuthService', () => {
 
         await expect(
           service.login(
-            { email: 'manager@acme.com', password: 'correctPassword' },
+            { username: 'manager_user', password: 'correctPassword' },
             '203.0.113.50',
           ),
         ).rejects.toThrow(new UnauthorizedException('Access denied.'));
@@ -204,7 +220,7 @@ describe('AuthService', () => {
         (bcrypt.compare as jest.Mock).mockResolvedValue(true);
 
         await expect(
-          service.login({ email: 'manager@acme.com', password: 'correctPassword' }),
+          service.login({ username: 'manager_user', password: 'correctPassword' }),
         ).rejects.toThrow(new UnauthorizedException('Access denied.'));
       });
 
@@ -218,7 +234,7 @@ describe('AuthService', () => {
 
         await expect(
           service.login(
-            { email: 'manager@acme.com', password: 'correctPassword' },
+            { username: 'manager_user', password: 'correctPassword' },
             '198.51.100.1',
           ),
         ).rejects.toThrow(new UnauthorizedException('Access denied.'));
@@ -233,7 +249,7 @@ describe('AuthService', () => {
         (bcrypt.compare as jest.Mock).mockResolvedValue(true);
 
         const result = await service.login(
-          { email: 'manager@acme.com', password: 'correctPassword' },
+          { username: 'manager_user', password: 'correctPassword' },
           '198.51.100.1',
         );
 
@@ -250,7 +266,7 @@ describe('AuthService', () => {
         (bcrypt.compare as jest.Mock).mockResolvedValue(true);
 
         const result = await service.login(
-          { email: 'admin@acme.com', password: 'correctPassword' },
+          { username: 'admin', password: 'correctPassword' },
           '203.0.113.99', // completely different IP
         );
 
@@ -267,7 +283,7 @@ describe('AuthService', () => {
         (bcrypt.compare as jest.Mock).mockResolvedValue(true);
 
         const result = await service.login(
-          { email: 'manager@acme.com', password: 'correctPassword' },
+          { username: 'manager_user', password: 'correctPassword' },
           '192.168.1.5',
         );
 
