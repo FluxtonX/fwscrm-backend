@@ -40,6 +40,10 @@ export class QueryLeadsDto extends PaginationQueryDto {
 
   @IsOptional()
   @IsString()
+  timeRange?: string;
+
+  @IsOptional()
+  @IsString()
   columns?: string;
 
   @IsOptional()

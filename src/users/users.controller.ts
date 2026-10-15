@@ -33,7 +33,7 @@ export class UsersController {
 
   @Post()
   @HttpCode(HttpStatus.CREATED)
-  @Roles(Role.SUPER_ADMIN)
+  @Roles(Role.SUPER_ADMIN, Role.ADMIN)
   createMember(
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: CreateMemberDto,
@@ -103,7 +103,7 @@ export class UsersController {
 
   @Patch(':id/password')
   @HttpCode(HttpStatus.OK)
-  @Roles(Role.SUPER_ADMIN)
+  @Roles(Role.SUPER_ADMIN, Role.ADMIN)
   adminResetPassword(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,

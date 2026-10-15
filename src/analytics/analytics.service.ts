@@ -123,35 +123,39 @@ export class AnalyticsService {
     days: number;
   } {
     const now = new Date();
-    let days = 30;
 
     switch (timeframe) {
-      case 'today':
-        days = 1;
-        break;
-      case '7d':
-        days = 7;
-        break;
-      case 'month':
-        days = now.getDate();
-        break;
-      case 'all':
-        days = 365;
-        break;
+      case 'today': {
+        const start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+        const previousStart = new Date(start);
+        previousStart.setDate(previousStart.getDate() - 1);
+        return { start, previousStart, days: 1 };
+      }
+      case '7d': {
+        const start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 7, 0, 0, 0, 0);
+        const previousStart = new Date(start);
+        previousStart.setDate(previousStart.getDate() - 7);
+        return { start, previousStart, days: 7 };
+      }
+      case 'month': {
+        const start = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
+        const previousStart = new Date(now.getFullYear(), now.getMonth() - 1, 1, 0, 0, 0, 0);
+        const days = Math.max(1, Math.ceil((now.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)));
+        return { start, previousStart, days };
+      }
+      case 'all': {
+        const start = new Date(0);
+        const previousStart = new Date(0);
+        return { start, previousStart, days: 3650 };
+      }
       case '30d':
-      default:
-        days = 30;
-        break;
+      default: {
+        const start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 30, 0, 0, 0, 0);
+        const previousStart = new Date(start);
+        previousStart.setDate(previousStart.getDate() - 30);
+        return { start, previousStart, days: 30 };
+      }
     }
-
-    const start = new Date(now);
-    start.setDate(now.getDate() - days);
-    start.setHours(0, 0, 0, 0);
-
-    const previousStart = new Date(start);
-    previousStart.setDate(start.getDate() - days);
-
-    return { start, previousStart, days };
   }
 
   async getDashboard(
@@ -481,43 +485,206 @@ export class AnalyticsService {
       };
     });
 
-    // Time-series trends (bucketed by day)
-    const trendBuckets = Math.min(days, 30);
-    const trendStartDate = new Date();
-    trendStartDate.setDate(trendStartDate.getDate() - trendBuckets);
-    trendStartDate.setHours(0, 0, 0, 0);
+    // Time-series trends (Lead Acquisition Velocity)
+    let trends: Array<{ date: string; label: string; count: number }> = [];
 
-    const periodLeads = await this.prisma.lead.findMany({
-      where: {
-        ...leadBaseWhere,
-        createdAt: { gte: trendStartDate },
-      },
-      select: { createdAt: true },
-    });
+    if (timeframe === 'today') {
+      const todayStart = new Date(now);
+      todayStart.setHours(0, 0, 0, 0);
 
-    const dateMap: Record<string, number> = {};
-    for (let i = 0; i <= trendBuckets; i++) {
-      const d = new Date(trendStartDate);
-      d.setDate(d.getDate() + i);
-      const key = d.toISOString().slice(0, 10);
-      dateMap[key] = 0;
-    }
-
-    for (const l of periodLeads) {
-      const key = l.createdAt.toISOString().slice(0, 10);
-      if (dateMap[key] !== undefined) {
-        dateMap[key]++;
-      }
-    }
-
-    const trends = Object.entries(dateMap).map(([date, count]) => {
-      const d = new Date(date);
-      const label = d.toLocaleDateString(undefined, {
-        month: 'short',
-        day: 'numeric',
+      const periodLeads = await this.prisma.lead.findMany({
+        where: {
+          ...leadBaseWhere,
+          createdAt: { gte: todayStart },
+        },
+        select: { createdAt: true },
       });
-      return { date, label, count };
-    });
+
+      const hourMap: Record<number, number> = {};
+      for (let h = 0; h < 24; h++) {
+        hourMap[h] = 0;
+      }
+      for (const l of periodLeads) {
+        const h = l.createdAt.getHours();
+        if (hourMap[h] !== undefined) {
+          hourMap[h]++;
+        }
+      }
+
+      trends = Object.entries(hourMap).map(([hStr, count]) => {
+        const h = parseInt(hStr, 10);
+        const period = h >= 12 ? 'PM' : 'AM';
+        const displayH = h % 12 === 0 ? 12 : h % 12;
+        const label = `${displayH} ${period}`;
+        const date = `${now.toISOString().slice(0, 10)}T${String(h).padStart(2, '0')}:00:00`;
+        return { date, label, count };
+      });
+    } else if (timeframe === 'all') {
+      const earliestLead = await this.prisma.lead.findFirst({
+        where: leadBaseWhere,
+        orderBy: { createdAt: 'asc' },
+        select: { createdAt: true },
+      });
+
+      if (!earliestLead) {
+        // No leads in organization: 14-day baseline
+        const dateMap: Record<string, number> = {};
+        for (let i = 13; i >= 0; i--) {
+          const d = new Date(now);
+          d.setDate(d.getDate() - i);
+          const key = d.toISOString().slice(0, 10);
+          dateMap[key] = 0;
+        }
+        trends = Object.entries(dateMap).map(([date, count]) => {
+          const d = new Date(date + 'T12:00:00');
+          const label = d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+          return { date, label, count };
+        });
+      } else {
+        const earliestDate = new Date(earliestLead.createdAt);
+        earliestDate.setUTCHours(0, 0, 0, 0);
+
+        const periodLeads = await this.prisma.lead.findMany({
+          where: {
+            ...leadBaseWhere,
+            createdAt: { gte: earliestDate },
+          },
+          select: { createdAt: true },
+        });
+
+        const spanDays = Math.max(
+          1,
+          Math.ceil((now.getTime() - earliestDate.getTime()) / (1000 * 60 * 60 * 24)),
+        );
+
+        if (spanDays <= 90) {
+          // Daily buckets from earliest lead to today
+          const dateMap: Record<string, number> = {};
+          const cur = new Date(earliestDate);
+          while (cur <= now) {
+            const key = cur.toISOString().slice(0, 10);
+            dateMap[key] = 0;
+            cur.setUTCDate(cur.getUTCDate() + 1);
+          }
+
+          for (const l of periodLeads) {
+            const key = l.createdAt.toISOString().slice(0, 10);
+            if (dateMap[key] !== undefined) {
+              dateMap[key]++;
+            }
+          }
+
+          trends = Object.entries(dateMap).map(([date, count]) => {
+            const d = new Date(date + 'T12:00:00');
+            const label = d.toLocaleDateString(undefined, {
+              month: 'short',
+              day: 'numeric',
+            });
+            return { date, label, count };
+          });
+        } else if (spanDays <= 365) {
+          // Weekly buckets for up to 1 year
+          const numWeeks = Math.ceil(spanDays / 7);
+          const weekMap: Array<{ date: string; label: string; count: number; start: Date; end: Date }> = [];
+          for (let w = 0; w <= numWeeks; w++) {
+            const wStart = new Date(earliestDate);
+            wStart.setUTCDate(wStart.getUTCDate() + w * 7);
+            const wEnd = new Date(wStart);
+            wEnd.setUTCDate(wEnd.getUTCDate() + 7);
+            weekMap.push({
+              date: wStart.toISOString().slice(0, 10),
+              label: wStart.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
+              count: 0,
+              start: wStart,
+              end: wEnd,
+            });
+          }
+
+          for (const l of periodLeads) {
+            const leadTime = l.createdAt.getTime();
+            const bucket = weekMap.find((w) => leadTime >= w.start.getTime() && leadTime < w.end.getTime());
+            if (bucket) {
+              bucket.count++;
+            } else if (weekMap.length > 0 && leadTime >= weekMap[weekMap.length - 1].start.getTime()) {
+              weekMap[weekMap.length - 1].count++;
+            }
+          }
+
+          trends = weekMap.map(({ date, label, count }) => ({ date, label, count }));
+        } else {
+          // Multi-year: monthly buckets
+          const monthMap: Record<string, { label: string; count: number }> = {};
+          const cur = new Date(Date.UTC(earliestDate.getUTCFullYear(), earliestDate.getUTCMonth(), 1));
+          while (cur <= now) {
+            const key = `${cur.getUTCFullYear()}-${String(cur.getUTCMonth() + 1).padStart(2, '0')}`;
+            const label = cur.toLocaleDateString(undefined, { month: 'short', year: '2-digit' });
+            monthMap[key] = { label, count: 0 };
+            cur.setUTCMonth(cur.getUTCMonth() + 1);
+          }
+
+          for (const l of periodLeads) {
+            const key = `${l.createdAt.getUTCFullYear()}-${String(l.createdAt.getUTCMonth() + 1).padStart(2, '0')}`;
+            if (monthMap[key]) {
+              monthMap[key].count++;
+            }
+          }
+
+          trends = Object.entries(monthMap).map(([key, val]) => ({
+            date: `${key}-01`,
+            label: val.label,
+            count: val.count,
+          }));
+        }
+      }
+    } else {
+      // 7d, 30d, or month (calendar month to date)
+      let trendStartDate: Date;
+      let trendBuckets: number;
+
+      if (timeframe === 'month') {
+        trendStartDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1, 0, 0, 0, 0));
+        trendBuckets = Math.max(1, now.getUTCDate());
+      } else if (timeframe === '7d') {
+        trendStartDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 6, 0, 0, 0, 0));
+        trendBuckets = 7;
+      } else {
+        // 30d
+        trendStartDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 29, 0, 0, 0, 0));
+        trendBuckets = 30;
+      }
+
+      const periodLeads = await this.prisma.lead.findMany({
+        where: {
+          ...leadBaseWhere,
+          createdAt: { gte: trendStartDate },
+        },
+        select: { createdAt: true },
+      });
+
+      const dateMap: Record<string, number> = {};
+      const cur = new Date(trendStartDate);
+      for (let i = 0; i < trendBuckets; i++) {
+        const key = cur.toISOString().slice(0, 10);
+        dateMap[key] = 0;
+        cur.setUTCDate(cur.getUTCDate() + 1);
+      }
+
+      for (const l of periodLeads) {
+        const key = l.createdAt.toISOString().slice(0, 10);
+        if (dateMap[key] !== undefined) {
+          dateMap[key]++;
+        }
+      }
+
+      trends = Object.entries(dateMap).map(([date, count]) => {
+        const d = new Date(date + 'T12:00:00');
+        const label = d.toLocaleDateString(undefined, {
+          month: 'short',
+          day: 'numeric',
+        });
+        return { date, label, count };
+      });
+    }
 
     // Team performance (omitted for Operator)
     const teamPerformance = isOperator

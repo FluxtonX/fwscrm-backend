@@ -39,9 +39,23 @@ export class UsersService {
       throw new BadRequestException('Passwords do not match');
     }
 
-    if (dto.role !== Role.MANAGER && dto.role !== Role.OPERATOR) {
+    if (
+      dto.role !== Role.ADMIN &&
+      dto.role !== Role.MANAGER &&
+      dto.role !== Role.OPERATOR
+    ) {
       throw new BadRequestException(
-        'Only MANAGER and OPERATOR roles can be assigned to new team members',
+        'Only ADMIN, MANAGER, and OPERATOR roles can be assigned to new team members',
+      );
+    }
+
+    // Role hierarchy rule: Admin cannot create another Admin (only Super Admin / Owner can create Admins)
+    const actor = await this.prisma.user.findFirst({
+      where: { id: actorId, organizationId },
+    });
+    if (actor && actor.role === Role.ADMIN && dto.role === Role.ADMIN) {
+      throw new ForbiddenException(
+        'Only the Super Admin (Owner) can create Admin accounts',
       );
     }
 
@@ -304,6 +318,23 @@ export class UsersService {
       }
     }
 
+    // Role hierarchy rule: Admin cannot modify Super Admin or promote to Super Admin
+    const roleActor = await this.prisma.user.findFirst({
+      where: { id: actorId, organizationId },
+    });
+    if (roleActor && roleActor.role === Role.ADMIN) {
+      if (targetUser.role === Role.SUPER_ADMIN) {
+        throw new ForbiddenException(
+          'Admin accounts cannot modify the Super Admin (Owner)',
+        );
+      }
+      if (newRole === Role.SUPER_ADMIN) {
+        throw new ForbiddenException(
+          'Only the Super Admin (Owner) can assign the Super Admin role',
+        );
+      }
+    }
+
     const previousRole = targetUser.role;
 
     const updated = await this.prisma.user.update({
@@ -370,6 +401,16 @@ export class UsersService {
     if (targetUserId === actorId && !isActive) {
       throw new ConflictException(
         'You cannot deactivate your own administrative account',
+      );
+    }
+
+    // Role hierarchy rule: Admin cannot deactivate Super Admin (Owner)
+    const statusActor = await this.prisma.user.findFirst({
+      where: { id: actorId, organizationId },
+    });
+    if (statusActor && statusActor.role === Role.ADMIN && targetUser.role === Role.SUPER_ADMIN) {
+      throw new ForbiddenException(
+        'Admin accounts cannot deactivate the Super Admin (Owner)',
       );
     }
 
@@ -703,6 +744,16 @@ export class UsersService {
 
     if (!targetUser) {
       throw new NotFoundException(`User with ID "${targetUserId}" not found`);
+    }
+
+    // Role hierarchy rule: Admin cannot modify Super Admin (Owner) permissions
+    const permActor = await this.prisma.user.findFirst({
+      where: { id: actorId, organizationId },
+    });
+    if (permActor && permActor.role === Role.ADMIN && targetUser.role === Role.SUPER_ADMIN) {
+      throw new ForbiddenException(
+        'Admin accounts cannot modify the Super Admin (Owner) permissions',
+      );
     }
 
     const updated = await this.prisma.user.update({

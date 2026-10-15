@@ -66,25 +66,56 @@ export class LeadsService {
       }
     }
 
-    if (query.dateFrom || query.dateTo) {
-      const createdAtFilter: Prisma.DateTimeFilter = {};
-      if (query.dateFrom) {
-        const fromDate = new Date(query.dateFrom);
-        if (!isNaN(fromDate.getTime())) {
-          createdAtFilter.gte = fromDate;
-        }
+    let effectiveDateFrom = query.dateFrom;
+    if (query.timeRange) {
+      const now = new Date();
+      if (query.timeRange === '7d' || query.timeRange === '7days') {
+        effectiveDateFrom = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
+      } else if (query.timeRange === '30d' || query.timeRange === 'month' || query.timeRange === 'last_month') {
+        effectiveDateFrom = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
+      } else if (query.timeRange === '1y' || query.timeRange === 'year' || query.timeRange === 'last_year') {
+        effectiveDateFrom = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000).toISOString();
+      }
+    }
+
+    if (effectiveDateFrom || query.dateTo) {
+      let fromDate: Date | undefined;
+      let toDate: Date | undefined;
+
+      if (effectiveDateFrom) {
+        const d = new Date(effectiveDateFrom);
+        if (!isNaN(d.getTime())) fromDate = d;
       }
       if (query.dateTo) {
-        const toDate = new Date(query.dateTo);
-        if (!isNaN(toDate.getTime())) {
-          if (query.dateTo.length <= 10) {
-            toDate.setHours(23, 59, 59, 999);
-          }
-          createdAtFilter.lte = toDate;
+        const d = new Date(query.dateTo);
+        if (!isNaN(d.getTime())) {
+          if (query.dateTo.length <= 10) d.setHours(23, 59, 59, 999);
+          toDate = d;
         }
       }
-      if (createdAtFilter.gte || createdAtFilter.lte) {
-        andConditions.push({ createdAt: createdAtFilter });
+
+      if (fromDate || toDate) {
+        const dateConditions: Prisma.LeadWhereInput[] = [];
+        if (fromDate && toDate) {
+          dateConditions.push(
+            { createdAt: { gte: fromDate, lte: toDate } },
+            { updatedAt: { gte: fromDate, lte: toDate } },
+          );
+        } else if (fromDate) {
+          dateConditions.push(
+            { createdAt: { gte: fromDate } },
+            { updatedAt: { gte: fromDate } },
+          );
+        } else if (toDate) {
+          dateConditions.push(
+            { createdAt: { lte: toDate } },
+            { updatedAt: { lte: toDate } },
+          );
+        }
+
+        if (dateConditions.length > 0) {
+          andConditions.push({ OR: dateConditions });
+        }
       }
     }
 
@@ -257,7 +288,7 @@ export class LeadsService {
     const sortColumn =
       query.sort && allowedSortColumns[query.sort]
         ? allowedSortColumns[query.sort]
-        : 'createdAt';
+        : 'updatedAt';
     const sortOrder = query.order?.toLowerCase() === 'asc' ? 'asc' : 'desc';
 
     const [total, data] = await Promise.all([
@@ -266,7 +297,10 @@ export class LeadsService {
         where,
         skip,
         take: limit,
-        orderBy: { [sortColumn]: sortOrder },
+        orderBy:
+          sortColumn === 'updatedAt'
+            ? [{ updatedAt: sortOrder }, { createdAt: 'desc' }]
+            : [{ [sortColumn]: sortOrder }, { updatedAt: 'desc' }, { createdAt: 'desc' }],
         include: {
           status: { select: { id: true, name: true, color: true } },
           source: { select: { id: true, name: true } },

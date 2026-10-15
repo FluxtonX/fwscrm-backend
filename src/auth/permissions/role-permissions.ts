@@ -5,7 +5,7 @@ export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
   [Role.SUPER_ADMIN]: Object.values(Permission),
 
   [Role.ADMIN]: Object.values(Permission).filter(
-    (p) => p !== Permission.USER_DELETE,
+    (p) => p !== Permission.USER_DELETE && p !== Permission.SETTINGS_MANAGE,
   ),
 
   [Role.MANAGER]: [
@@ -32,8 +32,9 @@ export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
   ],
 
   [Role.OPERATOR]: [
-    // Operational lead access (sees all leads, views details, approved communication action)
+    // Operational lead access (views assigned leads, updates status and details, approved communication action)
     Permission.LEAD_VIEW,
+    Permission.LEAD_EDIT,
     Permission.LEAD_SEND_NUMBERS,
 
     // Notes

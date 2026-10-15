@@ -32,8 +32,8 @@ export class CreateMemberDto {
   @IsNotEmpty({ message: 'Confirm password is required' })
   confirmPassword!: string;
 
-  @IsIn([Role.MANAGER, Role.OPERATOR], {
-    message: 'Role must be either MANAGER or OPERATOR',
+  @IsIn([Role.ADMIN, Role.MANAGER, Role.OPERATOR], {
+    message: 'Role must be either ADMIN, MANAGER, or OPERATOR',
   })
   @IsNotEmpty({ message: 'Role designation is required' })
   role!: Role;
