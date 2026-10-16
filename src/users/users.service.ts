@@ -255,10 +255,31 @@ export class UsersService {
   async listByOrganization(
     organizationId: string,
     includeInactive = true,
+    actor?: { id: string; role: Role },
   ): Promise<Omit<User, 'passwordHash'>[]> {
     const where: any = { organizationId };
     if (!includeInactive) {
       where.isActive = true;
+    }
+
+    if (actor && actor.role === Role.MANAGER) {
+      // Find all teams managed by this manager
+      const managedTeams = await this.prisma.team.findMany({
+        where: { organizationId, managerId: actor.id },
+        include: { members: { select: { userId: true } } },
+      });
+
+      const allowedUserIds = new Set<string>();
+      allowedUserIds.add(actor.id);
+      for (const t of managedTeams) {
+        for (const m of t.members) {
+          allowedUserIds.add(m.userId);
+        }
+      }
+
+      where.id = { in: Array.from(allowedUserIds) };
+    } else if (actor && (actor.role === Role.OPERATOR || actor.role === Role.AGENT)) {
+      where.id = actor.id;
     }
 
     return this.prisma.user.findMany({

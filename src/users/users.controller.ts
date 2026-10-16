@@ -44,7 +44,7 @@ export class UsersController {
   @Get()
   @RequirePermissions(Permission.USER_VIEW)
   findAll(@CurrentUser() user: AuthenticatedUser) {
-    return this.usersService.listByOrganization(user.organizationId, true);
+    return this.usersService.listByOrganization(user.organizationId, true, user);
   }
 
   @Patch(':id/role')

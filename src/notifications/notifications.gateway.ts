@@ -82,9 +82,11 @@ export class NotificationsGateway implements OnGatewayConnection, OnGatewayDisco
       // Server-side enforced user room (prevents client spoofing)
       const room = `org:${user.organizationId}:user:${user.id}`;
       client.join(room);
+      const orgRoom = `org:${user.organizationId}`;
+      client.join(orgRoom);
       client.data.user = user;
 
-      this.logger.log(`Client connected: ${client.id} joined room ${room}`);
+      this.logger.log(`Client connected: ${client.id} joined rooms ${room} & ${orgRoom}`);
     } catch (err: any) {
       this.logger.warn(`Socket authentication failed for ${client.id}: ${err?.message}`);
       client.disconnect(true);
@@ -106,5 +108,21 @@ export class NotificationsGateway implements OnGatewayConnection, OnGatewayDisco
     const room = `org:${organizationId}:user:${recipientUserId}`;
     this.logger.log(`Emitting notification:new event to room ${room}`);
     this.server.to(room).emit('notification:new', notification);
+  }
+
+  /**
+   * Broadcasts a real-time lead status change event to all active sessions in the organization.
+   */
+  broadcastLeadStatusChange(
+    organizationId: string,
+    payload: { leadId: string; statusId?: string; statusName?: string; updatedById?: string },
+  ) {
+    if (!this.server) {
+      this.logger.warn('WebSocket server not yet initialized');
+      return;
+    }
+    const orgRoom = `org:${organizationId}`;
+    this.logger.log(`Broadcasting lead:status_changed to org room ${orgRoom}`);
+    this.server.to(orgRoom).emit('lead:status_changed', payload);
   }
 }

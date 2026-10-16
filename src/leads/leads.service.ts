@@ -5,8 +5,10 @@ import {
   ConflictException,
   ForbiddenException,
   BadRequestException,
+  Optional,
 } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service';
+import { NotificationsGateway } from '../notifications/notifications.gateway';
 import { Lead, ActivityType, Prisma, Role, NotificationType } from '@prisma/client';
 import { QueryLeadsDto } from './dto/query-leads.dto';
 import { CreateLeadDto } from './dto/create-lead.dto';
@@ -19,7 +21,10 @@ import { PaginatedResult } from '../common/interfaces/paginated-result.interface
 export class LeadsService {
   private readonly logger = new Logger(LeadsService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly notificationsGateway?: NotificationsGateway,
+  ) {}
 
   async findAll(
     organizationId: string,
@@ -157,7 +162,20 @@ export class LeadsService {
         for (const m of t.members) teamMemberIds.add(m.userId);
       }
 
-      if (query.ownerId && teamMemberIds.has(query.ownerId)) {
+      if (query.ownerId === 'unassigned') {
+        andConditions.push({ ownerId: null });
+      } else if (query.ownerId && query.ownerId.includes(',')) {
+        const ids = query.ownerId.split(',').filter(Boolean);
+        const filteredIds = ids.filter((id) => teamMemberIds.has(id));
+        const hasUnassigned = ids.includes('unassigned');
+        if (hasUnassigned && filteredIds.length > 0) {
+          andConditions.push({ OR: [{ ownerId: { in: filteredIds } }, { ownerId: null }] });
+        } else if (hasUnassigned) {
+          andConditions.push({ ownerId: null });
+        } else if (filteredIds.length > 0) {
+          andConditions.push({ ownerId: { in: filteredIds } });
+        }
+      } else if (query.ownerId && teamMemberIds.has(query.ownerId)) {
         andConditions.push({ ownerId: query.ownerId });
       } else {
         andConditions.push({ ownerId: { in: Array.from(teamMemberIds) } });
@@ -167,6 +185,17 @@ export class LeadsService {
       if (query.ownerId) {
         if (query.ownerId === 'unassigned') {
           andConditions.push({ ownerId: null });
+        } else if (query.ownerId.includes(',')) {
+          const ids = query.ownerId.split(',').filter(Boolean);
+          const hasUnassigned = ids.includes('unassigned');
+          const validIds = ids.filter((id) => id !== 'unassigned');
+          if (hasUnassigned && validIds.length > 0) {
+            andConditions.push({ OR: [{ ownerId: { in: validIds } }, { ownerId: null }] });
+          } else if (hasUnassigned) {
+            andConditions.push({ ownerId: null });
+          } else {
+            andConditions.push({ ownerId: { in: validIds } });
+          }
         } else {
           andConditions.push({ ownerId: query.ownerId });
         }
@@ -244,18 +273,22 @@ export class LeadsService {
         case 'call_queue':
           andConditions.push({
             phone: { not: null },
-            status: {
-              name: {
-                notIn: ['Appointment', 'Wrong Info', 'Won', 'Customer'],
-                mode: 'insensitive',
+            OR: [
+              { statusId: null },
+              {
+                status: {
+                  NOT: {
+                    name: { contains: 'appointment', mode: 'insensitive' },
+                  },
+                },
               },
-            },
+            ],
           });
           break;
         case 'appointments':
           andConditions.push({
             status: {
-              name: { equals: 'Appointment', mode: 'insensitive' },
+              name: { contains: 'appointment', mode: 'insensitive' },
             },
           });
           break;
@@ -281,6 +314,7 @@ export class LeadsService {
       countryName: 'countryName',
       sourceName: 'sourceName',
       sourceFile: 'sourceFile',
+      ownerId: 'ownerId',
       createdAt: 'createdAt',
       updatedAt: 'updatedAt',
     };
@@ -311,6 +345,43 @@ export class LeadsService {
         },
       }),
     ]);
+
+    if (query.preset === 'call' || query.preset === 'call_queue') {
+      data.sort((a: any, b: any) => {
+        const isNewA =
+          !a.status?.name ||
+          a.status.name.trim().toLowerCase() === 'new' ||
+          a.status.name.trim().toLowerCase() === 'unassigned';
+        const isNewB =
+          !b.status?.name ||
+          b.status.name.trim().toLowerCase() === 'new' ||
+          b.status.name.trim().toLowerCase() === 'unassigned';
+        const isNoAnswerA =
+          a.status?.name?.toLowerCase().includes('no answer') || false;
+        const isNoAnswerB =
+          b.status?.name?.toLowerCase().includes('no answer') || false;
+
+        const tierA = isNewA ? 1 : isNoAnswerA ? 3 : 2;
+        const tierB = isNewB ? 1 : isNoAnswerB ? 3 : 2;
+
+        if (tierA !== tierB) {
+          return tierA - tierB;
+        }
+
+        // Tier 1: New numbers (newest created first)
+        if (tierA === 1) {
+          return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+        }
+
+        // Tier 3: No Answer (oldest status change first - longest time since modified)
+        if (tierA === 3) {
+          return new Date(a.updatedAt).getTime() - new Date(b.updatedAt).getTime();
+        }
+
+        // Tier 2: Other active statuses (most recently updated first)
+        return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+      });
+    }
 
     return {
       data,
@@ -577,6 +648,15 @@ export class LeadsService {
           : undefined,
       },
     });
+
+    if (isStatusChanged && this.notificationsGateway) {
+      this.notificationsGateway.broadcastLeadStatusChange(organizationId, {
+        leadId: id,
+        statusId: dto.statusId,
+        statusName: newStatusName || 'Unassigned',
+        updatedById,
+      });
+    }
 
     return updated;
   }
@@ -1004,6 +1084,15 @@ export class LeadsService {
     this.logger.log(
       `Bulk updated status to ${statusName} (${statusId}) for ${result.count} leads in org ${organizationId}`,
     );
+
+    if (this.notificationsGateway) {
+      this.notificationsGateway.broadcastLeadStatusChange(organizationId, {
+        leadId: leadIds[0],
+        statusId,
+        statusName,
+      });
+    }
+
     return { count: result.count };
   }
 
@@ -1193,6 +1282,13 @@ export class LeadsService {
     this.logger.log(
       `Bulk edited ${affectedCount} leads in org ${organizationId}: updated [${updatedFields.join(', ')}]`,
     );
+
+    if (data.statusId && this.notificationsGateway) {
+      this.notificationsGateway.broadcastLeadStatusChange(organizationId, {
+        leadId: leadIds[0],
+        statusId: data.statusId,
+      });
+    }
 
     return { count: affectedCount, updatedFields };
   }
